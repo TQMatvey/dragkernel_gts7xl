@@ -67,9 +67,9 @@ if [ -f out/arch/arm64/boot/Image ]; then
         cp -f out/arch/arm64/boot/Image release/
     fi
     find out -type f -name "*.ko" -exec cp -Rf "{}" release/modules/system/vendor/lib/modules/ \;
-    
+
     HASH=$(git rev-parse --short HEAD)
-    
+
     cd release
     zip -r9 "dragkernel-gts7xl-$HASH.zip" * -x *.DS_Store .git* README.md *placeholder LICENSE
     cd ../
