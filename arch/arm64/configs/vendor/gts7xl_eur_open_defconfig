@@ -4,7 +4,11 @@
 #
 ###PERSONAL###
 CONFIG_RTL8XXXU=y
-#CONFIG_RTL8XXXU_UNTESTED=y
+CONFIG_RTL8XXXU_UNTESTED=y
+# ^^^ NOT RTL8812AU, use later to try to get 8188eu(s) to work
+#
+CONFIG_88XXAU=y
+# THIS^^^ IS RTL8812AU 
 #
 # Compiler: clang version 13.0.0 for Android NDK
 #
