@@ -126,9 +126,6 @@ lim_process_probe_rsp_frame(struct mac_context *mac_ctx, uint8_t *rx_Packet_info
 
 	header = WMA_GET_RX_MAC_HEADER(rx_Packet_info);
 
-	mac_ctx->lim.bss_rssi = (int8_t)
-				WMA_GET_RX_RSSI_NORMALIZED(rx_Packet_info);
-
 	/* Validate IE information before processing Probe Response Frame */
 	if (lim_validate_ie_information_in_probe_rsp_frame(mac_ctx,
 				rx_Packet_info) !=
@@ -142,7 +139,8 @@ lim_process_probe_rsp_frame(struct mac_context *mac_ctx, uint8_t *rx_Packet_info
 	pe_debug("Probe Resp(len %d): " QDF_MAC_ADDR_FMT " RSSI %d",
 		 WMA_GET_RX_MPDU_LEN(rx_Packet_info),
 		 QDF_MAC_ADDR_REF(header->bssId),
-		 (uint)abs(mac_ctx->lim.bss_rssi));
+		 (uint)abs((int8_t)
+		 WMA_GET_RX_RSSI_NORMALIZED(rx_Packet_info)));
 	/* Get pointer to Probe Response frame body */
 	body = WMA_GET_RX_MPDU_DATA(rx_Packet_info);
 		/* Enforce Mandatory IEs */
@@ -166,18 +164,18 @@ lim_process_probe_rsp_frame(struct mac_context *mac_ctx, uint8_t *rx_Packet_info
 			session_entry->bcnLen = 0;
 		}
 		session_entry->bcnLen =
-			WMA_GET_RX_MPDU_LEN(rx_Packet_info);
+			WMA_GET_RX_PAYLOAD_LEN(rx_Packet_info);
 			session_entry->beacon =
 			qdf_mem_malloc(session_entry->bcnLen);
 		if (!session_entry->beacon) {
 			pe_err("No Memory to store beacon");
 		} else {
 			/*
-			 * Store the whole ProbeRsp frame.
+			 * Store the Beacon/ProbeRsp.
 			 * This is sent to csr/hdd in join cnf response.
 			 */
 			qdf_mem_copy(session_entry->beacon,
-				     WMA_GET_RX_MAC_HEADER
+				     WMA_GET_RX_MPDU_DATA
 					     (rx_Packet_info),
 				     session_entry->bcnLen);
 		}
@@ -211,6 +209,27 @@ lim_process_probe_rsp_frame(struct mac_context *mac_ctx, uint8_t *rx_Packet_info
 				lim_received_hb_handler(mac_ctx,
 							probe_rsp->chan_freq,
 							session_entry);
+		}
+		if (LIM_IS_STA_ROLE(session_entry) &&
+				!wma_is_csa_offload_enabled()) {
+			if (probe_rsp->channelSwitchPresent) {
+				/*
+				 * on receiving channel switch announcement
+				 * from AP, delete all TDLS peers before
+				 * leaving BSS and proceed for channel switch
+				 */
+				lim_update_tdls_set_state_for_fw(session_entry,
+								 false);
+				lim_delete_tdls_peers(mac_ctx, session_entry);
+
+				lim_update_channel_switch(mac_ctx,
+					probe_rsp,
+					session_entry);
+			} else if (session_entry->gLimSpecMgmt.dot11hChanSwState
+				== eLIM_11H_CHANSW_RUNNING) {
+				lim_cancel_dot11h_channel_switch(
+					mac_ctx, session_entry);
+			}
 		}
 		/*
 		 * Now Process EDCA Parameters, if EDCAParamSet
@@ -264,6 +283,12 @@ lim_process_probe_rsp_frame(struct mac_context *mac_ctx, uint8_t *rx_Packet_info
 			lim_detect_change_in_ap_capabilities(
 				mac_ctx, probe_rsp, session_entry);
 		}
+	} else {
+		if (LIM_IS_IBSS_ROLE(session_entry) &&
+		    (session_entry->limMlmState ==
+				eLIM_MLM_BSS_STARTED_STATE))
+			lim_handle_ibss_coalescing(mac_ctx, probe_rsp,
+					rx_Packet_info, session_entry);
 	}
 	qdf_mem_free(probe_rsp);
 

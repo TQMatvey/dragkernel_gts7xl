@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -50,6 +50,7 @@
 #define GET_LIM_SYSTEM_ROLE(pe_session)      (pe_session->limSystemRole)
 #define LIM_IS_AP_ROLE(pe_session)           (GET_LIM_SYSTEM_ROLE(pe_session) == eLIM_AP_ROLE)
 #define LIM_IS_STA_ROLE(pe_session)          (GET_LIM_SYSTEM_ROLE(pe_session) == eLIM_STA_ROLE)
+#define LIM_IS_IBSS_ROLE(pe_session)         (GET_LIM_SYSTEM_ROLE(pe_session) == eLIM_STA_IN_IBSS_ROLE)
 #define LIM_IS_UNKNOWN_ROLE(pe_session)      (GET_LIM_SYSTEM_ROLE(pe_session) == eLIM_UNKNOWN_ROLE)
 #define LIM_IS_P2P_DEVICE_ROLE(pe_session)   (GET_LIM_SYSTEM_ROLE(pe_session) == eLIM_P2P_DEVICE_ROLE)
 #define LIM_IS_P2P_DEVICE_GO(pe_session)     (GET_LIM_SYSTEM_ROLE(pe_session) == eLIM_P2P_DEVICE_GO)
@@ -67,42 +68,9 @@
 #define LIM_IS_CONNECTION_ACTIVE(pe_session)  (pe_session->LimRxedBeaconCntDuringHB)
 /*mac->lim.gLimProcessDefdMsgs*/
 #define GET_LIM_PROCESS_DEFD_MESGS(mac) (mac->lim.gLimProcessDefdMsgs)
-
-/**
- * lim_post_msg_api() - post normal priority PE message
- * @mac: mac context
- * @msg: message to be posted
- *
- * This function is called to post a message to the tail of the PE
- * message queue to be processed in the MC Thread with normal
- * priority.
- *
- * Return: QDF_STATUS_SUCCESS on success, other QDF_STATUS on error
- */
-QDF_STATUS lim_post_msg_api(struct mac_context *mac, struct scheduler_msg *msg);
-
-static inline void
-lim_post_msg_to_process_deferred_queue(struct mac_context *mac)
-{
-	struct scheduler_msg msg = {0};
-	QDF_STATUS status;
-
-	if (!mac->lim.gLimProcessDefdMsgs || !mac->lim.gLimDeferredMsgQ.size)
-		return;
-
-	msg.type = SIR_LIM_PROCESS_DEFERRED_QUEUE;
-	msg.bodyptr = NULL;
-	msg.bodyval = 0;
-
-	status = lim_post_msg_api(mac, &msg);
-	if (QDF_IS_STATUS_ERROR(status))
-		pe_err("Failed to post lim msg:0x%x", msg.type);
-}
-
 #define SET_LIM_PROCESS_DEFD_MESGS(mac, val) \
-	mac->lim.gLimProcessDefdMsgs = val; \
-	pe_debug("Defer LIM msg %d", val); \
-	lim_post_msg_to_process_deferred_queue(mac);
+		mac->lim.gLimProcessDefdMsgs = val; \
+		pe_debug("Defer LIM msg %d", val);
 
 /* LIM exported function templates */
 #define LIM_MIN_BCN_PR_LENGTH  12
@@ -203,6 +171,19 @@ void pe_register_callbacks_with_wma(struct mac_context *mac,
 void lim_cleanup(struct mac_context *);
 
 /**
+ * lim_post_msg_api() - post normal priority PE message
+ * @mac: mac context
+ * @msg: message to be posted
+ *
+ * This function is called to post a message to the tail of the PE
+ * message queue to be processed in the MC Thread with normal
+ * priority.
+ *
+ * Return: QDF_STATUS_SUCCESS on success, other QDF_STATUS on error
+ */
+QDF_STATUS lim_post_msg_api(struct mac_context *mac, struct scheduler_msg *msg);
+
+/**
  * lim_post_msg_high_priority() - post high priority PE message
  * @mac: mac context
  * @msg: message to be posted
@@ -221,6 +202,46 @@ QDF_STATUS lim_post_msg_high_priority(struct mac_context *mac,
  * and dispatch to various sub modules within LIM module.
  */
 void lim_message_processor(struct mac_context *, struct scheduler_msg *);
+
+#ifdef QCA_IBSS_SUPPORT
+/**
+ * lim_handle_ibss_coalescing() - Function to handle IBSS coalescing.
+ * @param  mac	  - Pointer to Global MAC structure
+ * @param  pBeacon - Parsed Beacon Frame structure
+ * @param  pRxPacketInfo - Pointer to RX packet info structure
+ * @pe_session - pointer to pe session
+ *
+ * This function is called upon receiving Beacon/Probe Response
+ * while operating in IBSS mode.
+ *
+ * @return Status whether to process or ignore received Beacon Frame
+ */
+QDF_STATUS
+lim_handle_ibss_coalescing(struct mac_context *mac,
+			   tpSchBeaconStruct pBeacon,
+			   uint8_t *pRxPacketInfo,
+			   struct pe_session *pe_session);
+#else
+/**
+ * lim_handle_ibss_coalescing() - Function to handle IBSS coalescing.
+ * @param  mac	  - Pointer to Global MAC structure
+ * @param  pBeacon - Parsed Beacon Frame structure
+ * @param  pRxPacketInfo - Pointer to RX packet info structure
+ * @pe_session - pointer to pe session
+ *
+ * This function is dummy
+ *
+ * @return Status whether to process or ignore received Beacon Frame
+ */
+static inline QDF_STATUS
+lim_handle_ibss_coalescing(struct mac_context *mac,
+			   tpSchBeaconStruct pBeacon,
+			   uint8_t *pRxPacketInfo,
+			   struct pe_session *pe_session)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
 
 /* / Function used by other Sirius modules to read global SME state */
 static inline tLimSmeStates lim_get_sme_state(struct mac_context *mac)
@@ -464,6 +485,15 @@ void __lim_process_sme_assoc_cnf_new(struct mac_context *, uint32_t, uint32_t *)
  * Return: None
  */
 void lim_process_sme_addts_rsp_timeout(struct mac_context *mac, uint32_t param);
+#ifdef FEATURE_WLAN_MCC_TO_SCC_SWITCH
+void lim_fill_join_rsp_ht_caps(struct pe_session *session,
+			       struct join_rsp *rsp);
+#else
+static inline
+void lim_fill_join_rsp_ht_caps(struct pe_session *session,
+			       struct join_rsp *rsp)
+{}
+#endif
 QDF_STATUS lim_update_ext_cap_ie(struct mac_context *mac_ctx, uint8_t *ie_data,
 				 uint8_t *local_ie_buf, uint16_t *local_ie_len,
 				 struct pe_session *session);

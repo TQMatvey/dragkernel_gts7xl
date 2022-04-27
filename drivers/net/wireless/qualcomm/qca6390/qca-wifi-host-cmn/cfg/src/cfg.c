@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -592,9 +592,8 @@ cfg_ini_config_print(struct wlan_objmgr_psoc *psoc, uint8_t *buf,
 #undef __CFG_INI_MAC
 #define __CFG_INI_MAC(id, mtype, ctype, name, desc, def...) \
 	do { \
-		len = qdf_scnprintf(buf, buflen, "%s "QDF_MAC_ADDR_FMT"\n", \
-			name, \
-			QDF_MAC_ADDR_REF((&store->values.id##_internal)->bytes)); \
+		len = qdf_scnprintf(buf, buflen, "%s "QDF_MAC_ADDR_FMT"\n", name, \
+				    QDF_MAC_ADDR_REF((&store->values.id##_internal)->bytes)); \
 		buf += len; \
 		buflen -= len; \
 	} while (0);

@@ -47,7 +47,6 @@
 #include <wlan_hdd_main.h>
 #include <wlan_hdd_wext.h>
 #include <sme_qos_api.h>
-#include <qca_vendor.h>
 
 /*Maximum number of ACs */
 #define WLAN_MAX_AC                         4
@@ -217,7 +216,7 @@ int hdd_wmmps_helper(struct hdd_adapter *adapter, uint8_t *ptr);
 QDF_STATUS hdd_send_dscp_up_map_to_fw(struct hdd_adapter *adapter);
 
 /**
- * hdd_wmm_dscp_initial_state() - initialize the WMM DSCP configuration
+ * hdd_wmm_init() - initialize the WMM DSCP configuation
  * @adapter : [in]  pointer to Adapter context
  *
  * This function will initialize the WMM DSCP configuation of an
@@ -226,7 +225,7 @@ QDF_STATUS hdd_send_dscp_up_map_to_fw(struct hdd_adapter *adapter);
  *
  * Return: QDF_STATUS enumeration
  */
-QDF_STATUS hdd_wmm_dscp_initial_state(struct hdd_adapter *adapter);
+QDF_STATUS hdd_wmm_init(struct hdd_adapter *adapter);
 
 /**
  * hdd_wmm_adapter_init() - initialize the WMM configuration of an adapter
@@ -309,14 +308,15 @@ QDF_STATUS hdd_wmm_acquire_access(struct hdd_adapter *adapter,
  * hdd_wmm_assoc() - Function which will handle the housekeeping
  * required by WMM when association takes place
  *
- * @adapter:  pointer to adapter context
- * @is_reassoc: is this reassoc scenario
- * @uapsd_mask : Negotiated uapsd msk
+ * @adapter: [in]  pointer to adapter context
+ * @roam_info: [in]  pointer to roam information
+ * @bss_type: [in]  type of BSS
  *
  * Return: QDF_STATUS enumeration
  */
 QDF_STATUS hdd_wmm_assoc(struct hdd_adapter *adapter,
-			 bool is_reassoc, uint8_t uapsd_mask);
+			 struct csr_roam_info *roam_info,
+			 eCsrRoamBssType bss_type);
 
 /**
  * hdd_wmm_connect() - Function which will handle the housekeeping
@@ -401,33 +401,4 @@ hdd_wlan_wmm_status_e hdd_wmm_checkts(struct hdd_adapter *adapter,
 QDF_STATUS hdd_wmm_adapter_clear(struct hdd_adapter *adapter);
 
 void wlan_hdd_process_peer_unauthorised_pause(struct hdd_adapter *adapter);
-
-extern const struct nla_policy
-config_tspec_policy[QCA_WLAN_VENDOR_ATTR_CONFIG_TSPEC_MAX + 1];
-
-/**
- * wlan_hdd_cfg80211_config_tspec() - config tpsec
- * @wiphy: pointer to wireless wiphy structure.
- * @wdev: pointer to wireless_dev structure.
- * @data: pointer to config tspec command parameters.
- * @data_len: the length in byte of config tspec command parameters.
- *
- * Return: An error code or 0 on success.
- */
-int wlan_hdd_cfg80211_config_tspec(struct wiphy *wiphy,
-				   struct wireless_dev *wdev,
-				   const void *data, int data_len);
-
-#define FEATURE_WMM_COMMANDS						\
-{									\
-	.info.vendor_id = QCA_NL80211_VENDOR_ID,			\
-	.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_CONFIG_TSPEC,		\
-	.flags = WIPHY_VENDOR_CMD_NEED_WDEV |				\
-		WIPHY_VENDOR_CMD_NEED_NETDEV |				\
-		WIPHY_VENDOR_CMD_NEED_RUNNING,				\
-	.doit = wlan_hdd_cfg80211_config_tspec,				\
-	vendor_command_policy(config_tspec_policy,			\
-			      QCA_WLAN_VENDOR_ATTR_CONFIG_TSPEC_MAX)	\
-},
-
 #endif /* #ifndef _WLAN_HDD_WMM_H */

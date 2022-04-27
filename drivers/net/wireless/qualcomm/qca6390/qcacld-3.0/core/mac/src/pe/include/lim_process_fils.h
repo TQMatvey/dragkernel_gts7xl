@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -80,20 +80,6 @@ bool lim_is_valid_fils_auth_frame(struct mac_context *mac_ctx,
 QDF_STATUS lim_create_fils_rik(uint8_t *rrk, uint8_t rrk_len,
 			       uint8_t *rik, uint32_t *rik_len);
 
-#ifdef FEATURE_CM_ENABLE
-/**
- * lim_update_fils_config()- This API updates fils session info to csr config
- * from join request.
- * @mac_ctx: pointer to mac context
- * @session: PE session
- * @join_req: pointer to join request
- *
- * Return: None
- */
-void lim_update_fils_config(struct mac_context *mac_ctx,
-			    struct pe_session *session,
-			    struct cm_vdev_join_req *join_req);
-#else
 /**
  * lim_update_fils_config()- This API updates fils session info to csr config
  * from join request.
@@ -106,7 +92,7 @@ void lim_update_fils_config(struct mac_context *mac_ctx,
 void lim_update_fils_config(struct mac_context *mac_ctx,
 			    struct pe_session *session,
 			    struct join_req *sme_join_req);
-#endif
+
 /**
  * lim_create_fils_auth_data()- This API creates the fils auth data
  * which needs to be sent in auth req.
@@ -137,22 +123,6 @@ static inline void lim_increase_fils_sequence_number(struct pe_session *session_
 		session_entry->fils_info->sequence_number++;
 }
 
-#ifdef FEATURE_CM_ENABLE
-/**
- * populate_fils_connect_params() - Populate FILS connect params to join rsp
- * @mac_ctx: Mac context
- * @session: PE session
- * @connect_rsp: connect join rsp
- *
- * This API copies the FILS connect params from PE session to SME join rsp
- *
- * Return: None
- */
-void
-populate_fils_connect_params(struct mac_context *mac_ctx,
-			     struct pe_session *session,
-			     struct wlan_cm_connect_resp *connect_rsp);
-#else
 /**
  * populate_fils_connect_params() - Populate FILS connect params to join rsp
  * @mac_ctx: Mac context
@@ -166,7 +136,7 @@ populate_fils_connect_params(struct mac_context *mac_ctx,
 void populate_fils_connect_params(struct mac_context *mac_ctx,
 				  struct pe_session *session,
 				  struct join_rsp *sme_join_rsp);
-#endif
+
 /**
  * lim_update_fils_hlp_data() - Update the hlp data from association
  * response frame to PE session.
@@ -247,6 +217,19 @@ bool lim_verify_fils_params_assoc_rsp(struct mac_context *mac_ctx,
 				      struct pe_session *session_entry,
 				      tpSirAssocRsp assoc_rsp,
 				      tLimMlmAssocCnf * assoc_cnf);
+
+/**
+ * lim_update_fils_rik() - API to update FILS RIK in RSO
+ * @pe_session: PE Session
+ * @req_buffer: Pointer to RSO request
+ *
+ * This API is used to calculate(if required) RIK and fill
+ * the same in RSO request to fw.
+ *
+ * Return: None
+ */
+void lim_update_fils_rik(struct pe_session *pe_session,
+			 struct roam_offload_scan_req *req_buffer);
 #else
 static inline bool lim_process_fils_auth_frame2(struct mac_context *mac_ctx,
 		struct pe_session *pe_session, tSirMacAuthFrameBody *rx_auth_frm_body)
@@ -269,18 +252,11 @@ static inline bool lim_is_valid_fils_auth_frame(struct mac_context *mac_ctx,
 	return true;
 }
 
-#ifdef FEATURE_CM_ENABLE
-static inline void lim_update_fils_config(struct mac_context *mac_ctx,
-			    struct pe_session *session,
-			    struct cm_vdev_join_req *join_req)
-{}
-#else
 static inline
 void lim_update_fils_config(struct mac_context *mac_ctx,
 			    struct pe_session *session,
 			    struct join_req *sme_join_req)
 { }
-#endif
 
 static inline
 QDF_STATUS lim_create_fils_auth_data(struct mac_context *mac_ctx,
@@ -296,18 +272,10 @@ static inline bool lim_is_fils_connection(struct pe_session *pe_session)
 	return false;
 }
 
-#ifdef FEATURE_CM_ENABLE
-static inline void
-populate_fils_connect_params(struct mac_context *mac_ctx,
-			     struct pe_session *session,
-			     struct wlan_cm_connect_resp *connect_rsp)
-{ }
-#else
 static inline void populate_fils_connect_params(struct mac_context *mac_ctx,
 						struct pe_session *session,
 						struct join_rsp *sme_join_rsp)
 { }
-#endif
 
 static inline
 void lim_update_fils_hlp_data(struct qdf_mac_addr *hlp_frm_src_mac,
@@ -340,4 +308,8 @@ static inline bool lim_verify_fils_params_assoc_rsp(struct mac_context *mac_ctx,
 {
 	return true;
 }
+
+static inline void lim_update_fils_rik(struct pe_session *pe_session,
+				       struct roam_offload_scan_req *req_buffer)
+{ }
 #endif

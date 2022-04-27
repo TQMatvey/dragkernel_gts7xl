@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -41,19 +41,6 @@
  *         false - ipa hw not present
  */
 bool ucfg_ipa_is_present(void);
-
-/**
- * ucfg_ipa_is_ready() - get IPA ready status
- *
- * After ipa_ready_cb() is registered and later invoked by IPA
- * driver, ipa ready status flag is updated in wlan driver.
- * Unless IPA ready callback is invoked and ready status is
- * updated none of the IPA APIs should be invoked.
- *
- * Return: true - ipa is ready
- *         false - ipa is not ready
- */
-bool ucfg_ipa_is_ready(void);
 
 /**
  * ucfg_ipa_is_enabled() - get IPA enable status
@@ -177,24 +164,6 @@ void ucfg_ipa_reg_send_to_nw_cb(struct wlan_objmgr_pdev *pdev,
 				wlan_ipa_send_to_nw cb);
 
 /**
- * ucfg_ipa_reg_rps_enable_cb() - Register cb to enable RPS
- * @pdev: pdev obj
- * @cb: callback
- *
- * Return: None
- */
-#ifdef IPA_LAN_RX_NAPI_SUPPORT
-void ucfg_ipa_reg_rps_enable_cb(struct wlan_objmgr_pdev *pdev,
-				wlan_ipa_rps_enable cb);
-#else
-static inline
-void ucfg_ipa_reg_rps_enable_cb(struct wlan_objmgr_pdev *pdev,
-				wlan_ipa_rps_enable cb)
-{
-}
-#endif
-
-/**
  * ucfg_ipa_set_mcc_mode() - Set MCC mode
  * @pdev: pdev obj
  * @mcc_mode: 0=MCC/1=SCC
@@ -215,13 +184,11 @@ void ucfg_ipa_set_dfs_cac_tx(struct wlan_objmgr_pdev *pdev, bool tx_block);
 /**
  * ucfg_ipa_set_ap_ibss_fwd() - Set AP intra bss forward
  * @pdev: pdev obj
- * @session_id: vdev id
  * @intra_bss: enable or disable ap intra bss forward
  *
  * Return: void
  */
-void ucfg_ipa_set_ap_ibss_fwd(struct wlan_objmgr_pdev *pdev, uint8_t session_id,
-			      bool intra_bss);
+void ucfg_ipa_set_ap_ibss_fwd(struct wlan_objmgr_pdev *pdev, bool intra_bss);
 
 /**
  * ucfg_ipa_uc_force_pipe_shutdown() - Force shutdown IPA pipe
@@ -389,13 +356,6 @@ void ucfg_ipa_fw_rejuvenate_send_msg(struct wlan_objmgr_pdev *pdev);
 void ucfg_ipa_component_config_update(struct wlan_objmgr_psoc *psoc);
 
 /**
- * ucfg_ipa_component_config_free() - Free IPA component config
- *
- * Return: None
- */
-void ucfg_ipa_component_config_free(void);
-
-/**
  * ucfg_get_ipa_tx_buf_count() - get IPA tx buffer count
  *
  * Return: IPA tx buffer count
@@ -424,11 +384,6 @@ void ucfg_ipa_flush_pending_vdev_events(struct wlan_objmgr_pdev *pdev,
 #else
 
 static inline bool ucfg_ipa_is_present(void)
-{
-	return false;
-}
-
-static inline bool ucfg_ipa_is_ready(void)
 {
 	return false;
 }
@@ -513,12 +468,6 @@ void ucfg_ipa_reg_send_to_nw_cb(struct wlan_objmgr_pdev *pdev,
 }
 
 static inline
-void ucfg_ipa_reg_rps_enable_cb(struct wlan_objmgr_pdev *pdev,
-				wlan_ipa_rps_enable cb)
-{
-}
-
-static inline
 void ucfg_ipa_set_mcc_mode(struct wlan_objmgr_pdev *pdev, bool mcc_mode)
 {
 }
@@ -529,8 +478,7 @@ void ucfg_ipa_set_dfs_cac_tx(struct wlan_objmgr_pdev *pdev, bool tx_block)
 }
 
 static inline
-void ucfg_ipa_set_ap_ibss_fwd(struct wlan_objmgr_pdev *pdev, uint8_t session_id,
-			      bool intra_bss)
+void ucfg_ipa_set_ap_ibss_fwd(struct wlan_objmgr_pdev *pdev, bool intra_bss)
 {
 }
 
@@ -634,11 +582,6 @@ void ucfg_ipa_fw_rejuvenate_send_msg(struct wlan_objmgr_pdev *pdev)
 
 static inline
 void ucfg_ipa_component_config_update(struct wlan_objmgr_psoc *psoc)
-{
-}
-
-static inline
-void ucfg_ipa_component_config_free(void)
 {
 }
 

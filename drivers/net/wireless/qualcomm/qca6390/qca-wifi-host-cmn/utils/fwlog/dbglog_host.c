@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -49,7 +49,6 @@
 #define CLD_DEBUGFS_DIR          "cld"
 #endif
 #define DEBUGFS_BLOCK_NAME       "dbglog_block"
-#define DEBUGFS_BLOCK_PERM       QDF_FILE_USR_READ
 
 #define ATH_MODULE_NAME fwlog
 #include <a_debug.h>
@@ -1329,16 +1328,6 @@ int dbglog_set_mod_log_lvl(wmi_unified_t wmi_handle, uint32_t mod_log_lvl)
 	return 0;
 }
 
-int dbglog_set_mod_wow_log_lvl(wmi_unified_t wmi_handle, uint32_t mod_log_lvl)
-{
-	/* set the global module level to log_lvl */
-	wma_config_debug_module_cmd(wmi_handle,
-				    WMI_DEBUG_LOG_PARAM_WOW_MOD_ENABLE_BITMAP,
-				    mod_log_lvl, NULL, 0);
-
-	return 0;
-}
-
 void
 dbglog_set_vap_enable_bitmap(wmi_unified_t wmi_handle,
 			     uint32_t vap_enable_bitmap)
@@ -1751,7 +1740,8 @@ send_diag_netlink_data(const uint8_t *buffer, uint32_t len, uint32_t cmd)
 
 		skb_out = nlmsg_new(slot_len, GFP_ATOMIC);
 		if (!skb_out) {
-			diag_err_rl("Failed to allocate new skb");
+			AR_DEBUG_PRINTF(ATH_DEBUG_ERR,
+					("Failed to allocate new skb\n"));
 			return A_ERROR;
 		}
 
@@ -4136,22 +4126,22 @@ static const struct file_operations fops_dbglog_block = {
 static void dbglog_debugfs_init(wmi_unified_t wmi_handle)
 {
 
-	wmi_handle->debugfs_phy = qdf_debugfs_create_dir(CLD_DEBUGFS_DIR, NULL);
+	wmi_handle->debugfs_phy = debugfs_create_dir(CLD_DEBUGFS_DIR, NULL);
 	if (!wmi_handle->debugfs_phy) {
 		qdf_print("Failed to create WMI debug fs");
 		return;
 	}
 
-	qdf_debugfs_create_entry(DEBUGFS_BLOCK_NAME, DEBUGFS_BLOCK_PERM,
-				 wmi_handle->debugfs_phy, &wmi_handle->dbglog,
-				 &fops_dbglog_block);
+	debugfs_create_file(DEBUGFS_BLOCK_NAME, 0400,
+			    wmi_handle->debugfs_phy, &wmi_handle->dbglog,
+			    &fops_dbglog_block);
 
 	return;
 }
 
 static void dbglog_debugfs_remove(wmi_unified_t wmi_handle)
 {
-	qdf_debugfs_remove_dir_recursive(wmi_handle->debugfs_phy);
+	debugfs_remove_recursive(wmi_handle->debugfs_phy);
 }
 
 #else
@@ -4224,7 +4214,6 @@ static void cnss_diag_cmd_handler(const void *data, int data_len,
 {
 	struct dbglog_slot *slot = NULL;
 	struct nlattr *tb[QCA_WLAN_VENDOR_ATTR_MAX + 1];
-	int len;
 
 	/*
 	 * audit note: it is ok to pass a NULL policy here since a
@@ -4243,17 +4232,15 @@ static void cnss_diag_cmd_handler(const void *data, int data_len,
 		return;
 	}
 
-	len = nla_len(tb[CLD80211_ATTR_DATA]);
-	if (len < sizeof(struct dbglog_slot)) {
-		AR_DEBUG_PRINTF(ATH_DEBUG_ERR, ("%s: attr length less than sizeof(struct dbglog_slot)\n",
+	if (nla_len(tb[CLD80211_ATTR_DATA]) != sizeof(struct dbglog_slot)) {
+		AR_DEBUG_PRINTF(ATH_DEBUG_ERR, ("%s: attr length check fails\n",
 				__func__));
 		return;
 	}
-
 	slot = (struct dbglog_slot *)nla_data(tb[CLD80211_ATTR_DATA]);
-	if (len != (sizeof(struct dbglog_slot) + (uint64_t) slot->length)) {
-		AR_DEBUG_PRINTF(ATH_DEBUG_ERR, ("%s: attr length check fails\n",
-				__func__));
+
+	if (!slot) {
+		AR_DEBUG_PRINTF(ATH_DEBUG_ERR, ("%s: data NULL\n", __func__));
 		return;
 	}
 
@@ -4479,7 +4466,7 @@ int dbglog_parser_type_init(wmi_unified_t wmi_handle, int type)
 
 int dbglog_init(wmi_unified_t wmi_handle)
 {
-	QDF_STATUS res;
+	int res = 0;
 
 	OS_MEMSET(mod_print, 0, sizeof(mod_print));
 
@@ -4509,24 +4496,24 @@ int dbglog_init(wmi_unified_t wmi_handle)
 		wmi_unified_register_event_handler(wmi_handle,
 						   wmi_dbg_msg_event_id,
 						   dbglog_parse_debug_logs,
-						   WMI_RX_DIAG_WORK_CTX);
-	if (QDF_IS_STATUS_ERROR(res))
-		return A_ERROR;
+						   WMA_RX_WORK_CTX);
+	if (res != 0)
+		return res;
 
 	/* Register handler for FW diag events */
 	res = wmi_unified_register_event_handler(wmi_handle,
 						 wmi_diag_container_event_id,
 						 fw_diag_data_event_handler,
-						 WMI_RX_DIAG_WORK_CTX);
-	if (QDF_IS_STATUS_ERROR(res))
-		return A_ERROR;
+						 WMA_RX_WORK_CTX);
+	if (res != 0)
+		return res;
 
 	/* Register handler for new FW diag  Event, LOG, MSG combined */
 	res = wmi_unified_register_event_handler(wmi_handle, wmi_diag_event_id,
 						 diag_fw_handler,
-						 WMI_RX_DIAG_WORK_CTX);
-	if (QDF_IS_STATUS_ERROR(res))
-		return A_ERROR;
+						 WMA_RX_WORK_CTX);
+	if (res != 0)
+		return res;
 
 #ifdef WLAN_OPEN_SOURCE
 	/* Initialize the fw debug log queue */
@@ -4537,12 +4524,12 @@ int dbglog_init(wmi_unified_t wmi_handle)
 	dbglog_debugfs_init(wmi_handle);
 #endif /* WLAN_OPEN_SOURCE */
 
-	return A_OK;
+	return res;
 }
 
 int dbglog_deinit(wmi_unified_t wmi_handle)
 {
-	QDF_STATUS res;
+	int res = 0;
 
 #ifdef WLAN_OPEN_SOURCE
 	/* DeInitialize the fw debug log queue */
@@ -4556,8 +4543,8 @@ int dbglog_deinit(wmi_unified_t wmi_handle)
 	res =
 		wmi_unified_unregister_event_handler(wmi_handle,
 						     wmi_dbg_msg_event_id);
-	if (QDF_IS_STATUS_ERROR(res))
-		return A_ERROR;
+	if (res != 0)
+		return res;
 
-	return A_OK;
+	return res;
 }

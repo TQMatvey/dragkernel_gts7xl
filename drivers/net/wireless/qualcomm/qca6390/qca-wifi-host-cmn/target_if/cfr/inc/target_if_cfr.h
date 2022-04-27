@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -48,10 +48,6 @@
  */
 #define CORRELATE_TX_EV_MODULE_ID 1
 
-#define get_u16_lsb(value) (uint16_t)(value)
-#define get_u16_msb(value) (uint16_t)(((uint32_t)value) >> 16)
-#define get_gain_db(value) ((value) & 0xFF)
-
 /**
  * target_if_cfr_init_pdev() - Inits cfr pdev and registers necessary handlers.
  * @psoc: pointer to psoc object
@@ -59,9 +55,8 @@
  *
  * Return: Registration status for necessary handlers
  */
-QDF_STATUS
-target_if_cfr_init_pdev(struct wlan_objmgr_psoc *psoc,
-			struct wlan_objmgr_pdev *pdev);
+int target_if_cfr_init_pdev(struct wlan_objmgr_psoc *psoc,
+			    struct wlan_objmgr_pdev *pdev);
 
 /**
  * target_if_cfr_deinit_pdev() - De-inits corresponding pdev and handlers.
@@ -70,9 +65,8 @@ target_if_cfr_init_pdev(struct wlan_objmgr_psoc *psoc,
  *
  * Return: De-registration status for necessary handlers
  */
-QDF_STATUS
-target_if_cfr_deinit_pdev(struct wlan_objmgr_psoc *psoc,
-			  struct wlan_objmgr_pdev *pdev);
+int target_if_cfr_deinit_pdev(struct wlan_objmgr_psoc *psoc,
+			      struct wlan_objmgr_pdev *pdev);
 
 /**
  * target_if_cfr_tx_ops_register() - Registers tx ops for cfr module
@@ -138,29 +132,6 @@ void target_if_cfr_set_cfr_support(struct wlan_objmgr_psoc *psoc,
 				   uint8_t value);
 
 /**
- * target_if_cfr_set_capture_count_support() - Function to set capture count
- *					       support.
- * @psoc: pointer to psoc object
- * @value: value to be set
- *
- * Return: success/failure
- */
-QDF_STATUS
-target_if_cfr_set_capture_count_support(struct wlan_objmgr_psoc *psoc,
-					uint8_t value);
-
-/**
- * target_if_cfr_set_mo_marking_support() - Function to set MO marking support
- * @psoc: pointer to psoc object
- * @value: value to be set
- *
- * Return: success/failure
- */
-QDF_STATUS
-target_if_cfr_set_mo_marking_support(struct wlan_objmgr_psoc *psoc,
-				     uint8_t value);
-
-/**
  * target_if_cfr_info_send() - Function to send cfr info to upper layers
  * @pdev: pointer to pdev object
  * @head: pointer to cfr info head
@@ -174,7 +145,6 @@ void target_if_cfr_info_send(struct wlan_objmgr_pdev *pdev, void *head,
 			     size_t hlen, void *data, size_t dlen, void *tail,
 			     size_t tlen);
 
-#ifdef WIFI_TARGET_TYPE_2_0
 /**
  * cfr_wifi2_0_init_pdev() - Function to init legacy pdev
  * @psoc: pointer to psoc object
@@ -194,20 +164,4 @@ QDF_STATUS cfr_wifi2_0_init_pdev(struct wlan_objmgr_psoc *psoc,
  */
 QDF_STATUS cfr_wifi2_0_deinit_pdev(struct wlan_objmgr_psoc *psoc,
 				   struct wlan_objmgr_pdev *pdev);
-
-#else
-#ifndef CFR_USE_FIXED_FOLDER
-static QDF_STATUS cfr_wifi2_0_init_pdev(struct wlan_objmgr_psoc *psoc,
-					struct wlan_objmgr_pdev *pdev)
-{
-	return QDF_STATUS_SUCCESS;
-}
-
-static QDF_STATUS cfr_wifi2_0_deinit_pdev(struct wlan_objmgr_psoc *psoc,
-					  struct wlan_objmgr_pdev *pdev)
-{
-	return QDF_STATUS_SUCCESS;
-}
-#endif
-#endif
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -50,7 +50,8 @@
 #define APF_MAX \
 	QCA_WLAN_VENDOR_ATTR_PACKET_FILTER_MAX
 
-const struct nla_policy wlan_hdd_apf_offload_policy[APF_MAX + 1] = {
+static const struct nla_policy
+wlan_hdd_apf_offload_policy[APF_MAX + 1] = {
 	[APF_SUBCMD] = {.type = NLA_U32},
 	[APF_VERSION] = {.type = NLA_U32},
 	[APF_FILTER_ID] = {.type = NLA_U32},
@@ -226,7 +227,8 @@ static int hdd_set_reset_apf_offload(struct hdd_context *hdd_ctx,
 	int prog_len;
 	int ret = 0;
 
-	if (!hdd_cm_is_vdev_associated(adapter)) {
+	if (!hdd_conn_is_connected(
+	    WLAN_HDD_GET_STATION_CTX_PTR(adapter))) {
 		hdd_err("Not in Connected state!");
 		return -ENOTSUPP;
 	}

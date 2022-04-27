@@ -68,9 +68,7 @@ include $(foreach chip, $(TARGET_WLAN_CHIP), $(LOCAL_PATH)/.$(chip)/Android.mk)
 
 else # Multi-ok check
 
-ifeq ($(WLAN_PROFILE),)
 WLAN_PROFILE := default
-endif
 
 ifeq ($(LOCAL_DEV_NAME), qcacld-3.0)
 
@@ -132,15 +130,6 @@ ifneq ($(WLAN_CFG_OVERRIDE_$(LOCAL_DEV_NAME)),)
 KBUILD_OPTIONS += WLAN_CFG_OVERRIDE="$(WLAN_CFG_OVERRIDE_$(LOCAL_DEV_NAME))"
 endif
 
-# Pass build options per chip to Kbuild. This will be injected from upper layer
-# makefile.
-#
-# e.g.
-#  WLAN_KBUILD_OPTIONS_qca6390 := CONFIG_CNSS_QCA6390=y
-ifneq ($(WLAN_KBUILD_OPTIONS_$(LOCAL_DEV_NAME)),)
-KBUILD_OPTIONS += "$(WLAN_KBUILD_OPTIONS_$(LOCAL_DEV_NAME))"
-endif
-
 include $(CLEAR_VARS)
 LOCAL_MODULE              := $(WLAN_CHIPSET)_$(LOCAL_DEV_NAME).ko
 LOCAL_MODULE_KBUILD_NAME  := $(LOCAL_MOD_NAME).ko
@@ -155,11 +144,7 @@ else
     LOCAL_MODULE_PATH := $(TARGET_OUT)/lib/modules/$(WLAN_CHIPSET)
 endif
 
-ifeq ($(TARGET_PRODUCT), taro)
-    include $(DLKM_DIR)/Build_external_kernelmodule.mk
-else
-    include $(DLKM_DIR)/AndroidKernelModule.mk
-endif
+include $(DLKM_DIR)/AndroidKernelModule.mk
 ###########################################################
 
 # Create Symbolic link
@@ -183,14 +168,8 @@ endif
 
 $(shell mkdir -p $(TARGET_FW_PATH); \
 	ln -sf $(TARGET_MAC_BIN_PATH)/wlan_mac.bin $(TARGET_FW_PATH)/wlan_mac.bin)
-ifeq ($(TARGET_BOARD_AUTO),true)
-$(shell ln -sf $(TARGET_CFG_PATH)/WCNSS_qcom_cfg.ini $(TARGET_FW_PATH)/WCNSS_qcom_cfg.ini)
-$(warning "generate soft link because TARGET_BOARD_AUTO true")
-else
 ifneq ($(GENERIC_ODM_IMAGE),true)
 $(shell ln -sf $(TARGET_CFG_PATH)/WCNSS_qcom_cfg.ini $(TARGET_FW_PATH)/WCNSS_qcom_cfg.ini)
-$(warning "generate soft link because GRNERIC_ODM_IMAGE not true")
-endif
 endif
 endif # Multi-ko check
 endif # DLKM check

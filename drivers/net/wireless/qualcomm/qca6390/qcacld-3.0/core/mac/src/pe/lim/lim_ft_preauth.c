@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -141,9 +141,9 @@ int lim_process_ft_pre_auth_req(struct mac_context *mac_ctx,
 					   ft_pre_auth_req->currbssId,
 					   &session_id);
 	if (!session) {
-		pe_err("Unable to find session for the bssid "
-			QDF_MAC_ADDR_FMT,
-			QDF_MAC_ADDR_REF(ft_pre_auth_req->currbssId));
+		pe_err("Unable to find session for the bssid"
+			   QDF_MAC_ADDR_FMT,
+			   QDF_MAC_ADDR_REF(ft_pre_auth_req->currbssId));
 		/* Post the FT Pre Auth Response to SME */
 		lim_post_ft_pre_auth_rsp(mac_ctx, QDF_STATUS_E_FAILURE, NULL, 0,
 					 session);
@@ -227,21 +227,17 @@ void lim_perform_ft_pre_auth(struct mac_context *mac, QDF_STATUS status,
 	tSirMacAuthFrameBody authFrame;
 	unsigned int session_id;
 	enum csr_akm_type auth_type;
-	struct qdf_mac_addr roam_bssid;
-	tpSirFTPreAuthReq pre_auth_req;
 
 	if (!pe_session) {
 		pe_err("pe_session is NULL");
 		return;
 	}
-	pre_auth_req = pe_session->ftPEContext.pFTPreAuthReq;
 	session_id = pe_session->smeSessionId;
 	auth_type =
 		mac->roam.roamSession[session_id].connectedProfile.AuthType;
-	pe_debug("auth_type %d, is11Rconnection %d", auth_type,
-		 pe_session->is11Rconnection);
+
 	if (pe_session->is11Rconnection &&
-	    pre_auth_req) {
+	    pe_session->ftPEContext.pFTPreAuthReq) {
 		/* Only 11r assoc has FT IEs */
 		if ((auth_type != eCSR_AUTH_TYPE_OPEN_SYSTEM) &&
 			(pe_session->ftPEContext.pFTPreAuthReq->ft_ies_length
@@ -259,14 +255,6 @@ void lim_perform_ft_pre_auth(struct mac_context *mac, QDF_STATUS status,
 	/* Nothing to be done if the session is not in STA mode */
 	if (!LIM_IS_STA_ROLE(pe_session)) {
 		pe_err("pe_session is not in STA mode");
-		return;
-	}
-	if (auth_type == eCSR_AUTH_TYPE_SAE && pre_auth_req) {
-		qdf_mem_copy((void *)roam_bssid.bytes,
-			     (void *)pre_auth_req->preAuthbssId,
-			     QDF_MAC_ADDR_SIZE);
-		csr_process_roam_auth_sae_callback(mac, pe_session->vdev_id,
-						   roam_bssid);
 		return;
 	}
 	pe_debug("Entered wait auth2 state for FT (old session %pK)",
@@ -304,9 +292,9 @@ void lim_perform_ft_pre_auth(struct mac_context *mac, QDF_STATUS status,
 	lim_diag_event_report(mac, WLAN_PE_DIAG_ROAM_AUTH_START_EVENT,
 			mac->lim.pe_session, QDF_STATUS_SUCCESS, QDF_STATUS_SUCCESS);
 #endif
-	if (pre_auth_req)
+	if (pe_session->ftPEContext.pFTPreAuthReq)
 		lim_send_auth_mgmt_frame(mac, &authFrame,
-			 pre_auth_req->preAuthbssId,
+			 pe_session->ftPEContext.pFTPreAuthReq->preAuthbssId,
 			 LIM_NO_WEP_IN_FC, pe_session);
 
 	return;
@@ -451,10 +439,10 @@ void lim_handle_ft_pre_auth_rsp(struct mac_context *mac, QDF_STATUS status,
 		      pe_session->ftPEContext.pFTPreAuthReq->pbssDescription;
 		ft_session =
 			pe_create_session(mac, pbssDescription->bssId,
-					  &sessionId,
-					  mac->lim.max_sta_of_pe_session,
+					  &sessionId, mac->lim.maxStation,
 					  pe_session->bssType,
-					  pe_session->vdev_id);
+					  pe_session->vdev_id,
+					  pe_session->opmode);
 		if (!ft_session) {
 			pe_err("Session not created for pre-auth 11R AP");
 			status = QDF_STATUS_E_FAILURE;
@@ -468,7 +456,9 @@ void lim_handle_ft_pre_auth_rsp(struct mac_context *mac, QDF_STATUS status,
 				  pbssDescription->bssId);
 
 		/* Update the beacon/probe filter in mac_ctx */
-		lim_set_bcn_probe_filter(mac, ft_session, 0);
+		lim_set_bcn_probe_filter(mac,
+					 ft_session,
+					 NULL, 0);
 
 		if (ft_session->bssType == eSIR_INFRASTRUCTURE_MODE)
 			ft_session->limSystemRole = eLIM_STA_ROLE;

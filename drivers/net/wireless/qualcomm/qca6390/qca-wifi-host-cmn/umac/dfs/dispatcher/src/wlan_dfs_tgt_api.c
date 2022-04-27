@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
  *
  *
  * Permission to use, copy, modify, and/or distribute this software for
@@ -40,18 +40,8 @@
 struct wlan_lmac_if_dfs_tx_ops *
 wlan_psoc_get_dfs_txops(struct wlan_objmgr_psoc *psoc)
 {
-	struct wlan_lmac_if_tx_ops *tx_ops;
-
-	tx_ops = wlan_psoc_get_lmac_if_txops(psoc);
-	if (!tx_ops) {
-		dfs_err(NULL, WLAN_DEBUG_DFS_ALWAYS,  "tx_ops is null");
-		return NULL;
-	}
-
-	return &tx_ops->dfs_tx_ops;
+	return &((psoc->soc_cb.tx_ops.dfs_tx_ops));
 }
-
-qdf_export_symbol(wlan_psoc_get_dfs_txops);
 
 bool tgt_dfs_is_pdev_5ghz(struct wlan_objmgr_pdev *pdev)
 {
@@ -124,8 +114,7 @@ tgt_dfs_set_current_channel_for_freq(struct wlan_objmgr_pdev *pdev,
 				     uint8_t dfs_chan_vhtop_freq_seg1,
 				     uint8_t dfs_chan_vhtop_freq_seg2,
 				     uint16_t dfs_chan_mhz_freq_seg1,
-				     uint16_t dfs_chan_mhz_freq_seg2,
-				     bool *is_channel_updated)
+				     uint16_t dfs_chan_mhz_freq_seg2)
 {
 	struct wlan_dfs *dfs;
 
@@ -146,8 +135,7 @@ tgt_dfs_set_current_channel_for_freq(struct wlan_objmgr_pdev *pdev,
 					 dfs_chan_vhtop_freq_seg1,
 					 dfs_chan_vhtop_freq_seg2,
 					 dfs_chan_mhz_freq_seg1,
-					 dfs_chan_mhz_freq_seg2,
-					 is_channel_updated);
+					 dfs_chan_mhz_freq_seg2);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -467,7 +455,7 @@ QDF_STATUS tgt_dfs_set_agile_precac_state(struct wlan_objmgr_pdev *pdev,
 			 */
 			if (!agile_precac_state)
 				dfs->dfs_agile_precac_freq_mhz = 0;
-			if (dfs_soc->cur_agile_dfs_index == i)
+			if (dfs_soc->cur_precac_dfs_index == i)
 				is_precac_running_on_given_pdev = true;
 		}
 	}
@@ -512,7 +500,7 @@ QDF_STATUS tgt_dfs_set_agile_precac_state(struct wlan_objmgr_pdev *pdev,
 			 */
 			if (!agile_precac_state)
 				dfs->dfs_agile_precac_freq = 0;
-			if (dfs_soc->cur_agile_dfs_index == i)
+			if (dfs_soc->cur_precac_dfs_index == i)
 				is_precac_running_on_given_pdev = true;
 		}
 	}
@@ -558,9 +546,7 @@ QDF_STATUS tgt_dfs_ocac_complete(struct wlan_objmgr_pdev *pdev,
 	}
 
 	dfs_process_ocac_complete(pdev, adfs_status->ocac_status,
-				  adfs_status->center_freq1,
-				  adfs_status->center_freq2,
-				  adfs_status->chan_width);
+				  adfs_status->center_freq);
 
 	return  QDF_STATUS_SUCCESS;
 }
@@ -656,8 +642,9 @@ QDF_STATUS tgt_dfs_process_radar_ind(struct wlan_objmgr_pdev *pdev,
 		return status;
 	}
 
-	dfs_translate_radar_params(dfs, radar_found);
+	dfs->dfs_radar_found_for_fo = 1;
 	status = dfs_process_radar_ind(dfs, radar_found);
+	dfs->dfs_radar_found_for_fo = 0;
 
 	return status;
 }
@@ -798,11 +785,6 @@ tgt_dfs_send_avg_params_to_fw(struct wlan_objmgr_pdev *pdev,
 		return status;
 	}
 
-	dfs_debug(dfs, WLAN_DEBUG_DFS_ALWAYS,
-		  "params->pri_min = %d; params->pri_max = %d; params->duration_min = %d; params->duration_max = %d; params->sidx_min = %d; params->sidx_max = %d",
-		  params->pri_min, params->pri_max,
-		  params->duration_min, params->duration_max,
-		  params->sidx_min, params->sidx_max);
 	dfs_tx_ops = wlan_psoc_get_dfs_txops(psoc);
 	if (dfs_tx_ops && dfs_tx_ops->dfs_send_avg_radar_params_to_fw)
 		status = dfs_tx_ops->dfs_send_avg_radar_params_to_fw(pdev,
@@ -810,8 +792,9 @@ tgt_dfs_send_avg_params_to_fw(struct wlan_objmgr_pdev *pdev,
 
 	if (QDF_IS_STATUS_SUCCESS(status)) {
 		dfs->dfs_average_params_sent = 1;
-		dfs_debug(dfs, WLAN_DEBUG_DFS_ALWAYS, "Average radar parameters sent %d",
-			  dfs->dfs_average_params_sent);
+		dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS,
+			 "Average radar parameters sent %d",
+			 dfs->dfs_average_params_sent);
 	}
 
 	return status;
@@ -915,6 +898,32 @@ QDF_STATUS tgt_dfs_send_subchan_marking(struct wlan_objmgr_pdev *pdev,
 qdf_export_symbol(tgt_dfs_send_subchan_marking);
 #endif
 
+void tgt_dfs_enable_stadfs(struct wlan_objmgr_pdev *pdev, bool val)
+{
+	struct wlan_dfs *dfs;
+
+	dfs = wlan_pdev_get_dfs_obj(pdev);
+	if (!dfs) {
+		dfs_err(dfs, WLAN_DEBUG_DFS_ALWAYS, "dfs is NULL");
+		return;
+	}
+
+	dfs->dfs_is_stadfs_enabled = val;
+}
+
+bool tgt_dfs_is_stadfs_enabled(struct wlan_objmgr_pdev *pdev)
+{
+	struct wlan_dfs *dfs;
+
+	dfs = wlan_pdev_get_dfs_obj(pdev);
+	if (!dfs) {
+		dfs_err(dfs, WLAN_DEBUG_DFS_ALWAYS, "dfs is NULL");
+		return false;
+	}
+
+	return dfs->dfs_is_stadfs_enabled;
+}
+
 #ifdef QCA_SUPPORT_AGILE_DFS
 void tgt_dfs_set_fw_adfs_support(struct wlan_objmgr_pdev *pdev,
 				 bool fw_adfs_support_160,
@@ -935,3 +944,102 @@ void tgt_dfs_set_fw_adfs_support(struct wlan_objmgr_pdev *pdev,
 
 qdf_export_symbol(tgt_dfs_set_fw_adfs_support);
 #endif
+
+void tgt_dfs_init_tmp_psoc_nol(struct wlan_objmgr_pdev *pdev,
+			       uint8_t num_radios)
+{
+	struct wlan_dfs *dfs;
+
+	dfs = wlan_pdev_get_dfs_obj(pdev);
+	if (!dfs) {
+		dfs_err(dfs, WLAN_DEBUG_DFS_ALWAYS, "dfs is NULL");
+		return;
+	}
+
+	dfs_init_tmp_psoc_nol(dfs, num_radios);
+}
+
+qdf_export_symbol(tgt_dfs_init_tmp_psoc_nol);
+
+void tgt_dfs_deinit_tmp_psoc_nol(struct wlan_objmgr_pdev *pdev)
+{
+	struct wlan_dfs *dfs;
+
+	dfs = wlan_pdev_get_dfs_obj(pdev);
+	if (!dfs) {
+		dfs_err(dfs, WLAN_DEBUG_DFS_ALWAYS, "dfs is NULL");
+		return;
+	}
+
+	dfs_deinit_tmp_psoc_nol(dfs);
+}
+
+qdf_export_symbol(tgt_dfs_deinit_tmp_psoc_nol);
+
+void tgt_dfs_save_dfs_nol_in_psoc(struct wlan_objmgr_pdev *pdev,
+				  uint8_t pdev_id,
+				  uint16_t low_5ghz_freq,
+				  uint16_t high_5ghz_freq)
+{
+	struct wlan_dfs *dfs;
+
+	dfs = wlan_pdev_get_dfs_obj(pdev);
+	if (!dfs) {
+		dfs_err(dfs, WLAN_DEBUG_DFS_ALWAYS, "dfs is NULL");
+		return;
+	}
+
+	dfs_save_dfs_nol_in_psoc(dfs, pdev_id, low_5ghz_freq, high_5ghz_freq);
+}
+
+qdf_export_symbol(tgt_dfs_save_dfs_nol_in_psoc);
+
+void tgt_dfs_reinit_nol_from_psoc_copy(struct wlan_objmgr_pdev *pdev,
+				       uint8_t pdev_id)
+{
+	struct wlan_dfs *dfs;
+
+	dfs = wlan_pdev_get_dfs_obj(pdev);
+	if (!dfs) {
+		dfs_err(dfs, WLAN_DEBUG_DFS_ALWAYS, "dfs is NULL");
+		return;
+	}
+
+	dfs_reinit_nol_from_psoc_copy(dfs, pdev_id);
+}
+
+qdf_export_symbol(tgt_dfs_reinit_nol_from_psoc_copy);
+
+void tgt_dfs_reinit_precac_lists(struct wlan_objmgr_pdev *src_pdev,
+				 struct wlan_objmgr_pdev *dest_pdev,
+				 uint16_t low_5g_freq,
+				 uint16_t high_5g_freq)
+{
+	struct wlan_dfs *src_dfs, *dest_dfs;
+
+	src_dfs = wlan_pdev_get_dfs_obj(src_pdev);
+	if (!src_dfs) {
+		dfs_err(src_dfs, WLAN_DEBUG_DFS_ALWAYS, "dfs is NULL");
+		return;
+	}
+	dest_dfs = wlan_pdev_get_dfs_obj(dest_pdev);
+	if (!dest_dfs) {
+		dfs_err(dest_dfs, WLAN_DEBUG_DFS_ALWAYS, "dfs is NULL");
+		return;
+	}
+
+	dfs_reinit_precac_lists(src_dfs, dest_dfs, low_5g_freq, high_5g_freq);
+}
+
+void tgt_dfs_complete_deferred_tasks(struct wlan_objmgr_pdev *pdev)
+{
+	struct wlan_dfs *dfs;
+
+	dfs = wlan_pdev_get_dfs_obj(pdev);
+	if (!dfs) {
+		dfs_err(dfs, WLAN_DEBUG_DFS_ALWAYS, "dfs is NULL");
+		return;
+	}
+
+	dfs_complete_deferred_tasks(dfs);
+}

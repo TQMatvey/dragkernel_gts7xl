@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -44,8 +44,8 @@
 #include "host_diag_core_event.h"
 #endif
 
-const struct nla_policy cfg80211_scan_policy[
-			QCA_WLAN_VENDOR_ATTR_SCAN_MAX + 1] = {
+static const
+struct nla_policy scan_policy[QCA_WLAN_VENDOR_ATTR_SCAN_MAX + 1] = {
 	[QCA_WLAN_VENDOR_ATTR_SCAN_FLAGS] = {.type = NLA_U32},
 	[QCA_WLAN_VENDOR_ATTR_SCAN_TX_NO_CCK_RATE] = {.type = NLA_FLAG},
 	[QCA_WLAN_VENDOR_ATTR_SCAN_COOKIE] = {.type = NLA_U64},
@@ -150,24 +150,14 @@ static void wlan_scan_rand_attrs(struct wlan_objmgr_vdev *vdev,
  * Return: None
  */
 static void
-wlan_config_sched_scan_plan(struct pno_scan_req_params *pno_req,
+wlan_config_sched_scan_plan(struct wlan_objmgr_psoc *psoc,
+			    struct pno_scan_req_params *pno_req,
 			    struct cfg80211_sched_scan_request *request)
 {
-	/*
-	 * As of now max 2 scan plans were supported by firmware
-	 * if number of scan plan supported by firmware increased below logic
-	 * must change.
-	 */
-	if (request->n_scan_plans == SCAN_PNO_MAX_PLAN_REQUEST) {
+	if (!ucfg_scan_get_user_config_sched_scan_plan(psoc) ||
+	    request->n_scan_plans == 1) {
 		pno_req->fast_scan_period =
-			request->scan_plans[0].interval * MSEC_PER_SEC;
-		pno_req->fast_scan_max_cycles =
-			request->scan_plans[0].iterations;
-		pno_req->slow_scan_period =
-			request->scan_plans[1].interval * MSEC_PER_SEC;
-	} else if (request->n_scan_plans == 1) {
-		pno_req->fast_scan_period =
-			request->scan_plans[0].interval * MSEC_PER_SEC;
+		request->scan_plans[0].interval * MSEC_PER_SEC;
 		/*
 		 * if only one scan plan is configured from framework
 		 * then both fast and slow scan should be configured with the
@@ -176,13 +166,26 @@ wlan_config_sched_scan_plan(struct pno_scan_req_params *pno_req,
 		pno_req->fast_scan_max_cycles = 1;
 		pno_req->slow_scan_period =
 			request->scan_plans[0].interval * MSEC_PER_SEC;
+	}
+	/*
+	 * As of now max 2 scan plans were supported by firmware
+	 * if number of scan plan supported by firmware increased below logic
+	 * must change.
+	 */
+	else if (request->n_scan_plans == SCAN_PNO_MAX_PLAN_REQUEST) {
+		pno_req->fast_scan_period =
+			request->scan_plans[0].interval * MSEC_PER_SEC;
+		pno_req->fast_scan_max_cycles =
+			request->scan_plans[0].iterations;
+		pno_req->slow_scan_period =
+			request->scan_plans[1].interval * MSEC_PER_SEC;
 	} else {
 		osif_err("Invalid number of scan plans %d !!",
 			 request->n_scan_plans);
 	}
 }
 #else
-#define wlan_config_sched_scan_plan(pno_req, request) \
+#define wlan_config_sched_scan_plan(psoc, pno_req, request) \
 	__wlan_config_sched_scan_plan(pno_req, request, psoc)
 
 static void
@@ -566,7 +569,7 @@ int wlan_cfg80211_sched_scan_start(struct wlan_objmgr_vdev *vdev,
 	 *   switches slow_scan_period. This is less frequent scans and firmware
 	 *   shall be in slow_scan_period mode until next PNO Start.
 	 */
-	wlan_config_sched_scan_plan(req, request);
+	wlan_config_sched_scan_plan(psoc, req, request);
 	req->delay_start_time = wlan_config_sched_scan_start_delay(request);
 	req->scan_backoff_multiplier = scan_backoff_multiplier;
 
@@ -806,9 +809,9 @@ static QDF_STATUS wlan_scan_request_dequeue(
  *
  * Return: none
  */
-void wlan_cfg80211_scan_done(struct net_device *netdev,
-			     struct cfg80211_scan_request *req,
-			     bool aborted)
+static void wlan_cfg80211_scan_done(struct net_device *netdev,
+				    struct cfg80211_scan_request *req,
+				    bool aborted)
 {
 	struct cfg80211_scan_info info = {
 		.aborted = aborted
@@ -828,9 +831,9 @@ void wlan_cfg80211_scan_done(struct net_device *netdev,
  *
  * Return: none
  */
-void wlan_cfg80211_scan_done(struct net_device *netdev,
-			     struct cfg80211_scan_request *req,
-			     bool aborted)
+static void wlan_cfg80211_scan_done(struct net_device *netdev,
+				    struct cfg80211_scan_request *req,
+				    bool aborted)
 {
 	if (netdev->flags & IFF_UP)
 		cfg80211_scan_done(req, aborted);
@@ -1798,7 +1801,7 @@ int wlan_vendor_abort_scan(struct wlan_objmgr_pdev *pdev,
 
 	pdev_id = wlan_objmgr_pdev_get_pdev_id(pdev);
 	if (wlan_cfg80211_nla_parse(tb, QCA_WLAN_VENDOR_ATTR_SCAN_MAX, data,
-				    data_len, cfg80211_scan_policy)) {
+				    data_len, scan_policy)) {
 		osif_err("Invalid ATTR");
 		return ret;
 	}
@@ -2055,19 +2058,10 @@ struct cfg80211_bss *wlan_cfg80211_get_bss(struct wiphy *wiphy,
 }
 #endif
 
-QDF_STATUS  __wlan_cfg80211_unlink_bss_list(struct wiphy *wiphy,
-					    struct wlan_objmgr_pdev *pdev,
-					    uint8_t *bssid, uint8_t *ssid,
-					    uint8_t ssid_len)
+void __wlan_cfg80211_unlink_bss_list(struct wiphy *wiphy, uint8_t *bssid,
+				     uint8_t *ssid, uint8_t ssid_len)
 {
 	struct cfg80211_bss *bss = NULL;
-	uint8_t vdev_id;
-
-	if (bssid && wlan_get_connected_vdev_by_bssid(pdev, bssid, &vdev_id)) {
-		osif_debug("BSS "QDF_MAC_ADDR_FMT" connected on vdev %d dont unlink",
-			   QDF_MAC_ADDR_REF(bssid), vdev_id);
-		return QDF_STATUS_E_FAILURE;
-	}
 
 	bss = wlan_cfg80211_get_bss(wiphy, NULL, bssid,
 				    ssid, ssid_len);
@@ -2102,8 +2096,6 @@ QDF_STATUS  __wlan_cfg80211_unlink_bss_list(struct wiphy *wiphy,
 		/* cfg80211_get_bss get bss with ref count so release it */
 		wlan_cfg80211_put_bss(wiphy, bss);
 	}
-
-	return QDF_STATUS_SUCCESS;
 }
 void wlan_cfg80211_unlink_bss_list(struct wlan_objmgr_pdev *pdev,
 				   struct scan_cache_entry *scan_entry)
@@ -2118,7 +2110,7 @@ void wlan_cfg80211_unlink_bss_list(struct wlan_objmgr_pdev *pdev,
 
 	wiphy = pdev_ospriv->wiphy;
 
-	__wlan_cfg80211_unlink_bss_list(wiphy, pdev, scan_entry->bssid.bytes,
+	__wlan_cfg80211_unlink_bss_list(wiphy, scan_entry->bssid.bytes,
 					scan_entry->ssid.ssid,
 					scan_entry->ssid.length);
 }

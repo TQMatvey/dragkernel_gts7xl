@@ -24,7 +24,6 @@
 #define __CFG_CONVERGED_H
 
 #include <wlan_scan_cfg.h>
-#include "cfg_mlme_score_params.h"
 #include "cfg_dp.h"
 #include "cfg_hif.h"
 #include <wlan_extscan_cfg.h>
@@ -34,21 +33,6 @@
 #define CFG_GREEN_AP_ALL
 #endif
 #include <cfg_spectral.h>
-#ifdef DCS_INTERFERENCE_DETECTION
-#include "wlan_dcs_cfg.h"
-#else
-#define CFG_DCS_ALL
-#endif
-#ifdef WLAN_CFR_ENABLE
-#include "cfr_cfg.h"
-#else
-#define CFG_CFR_ALL
-#endif
-#ifdef FEATURE_CM_UTF_ENABLE
-#include <wlan_cm_utf.h>
-#else
-#define CFG_WLAN_CM_UTF_PARAM
-#endif
 
 #define CFG_CONVERGED_ALL \
 		CFG_SCAN_ALL \
@@ -56,11 +40,7 @@
 		CFG_EXTSCAN_ALL \
 		CFG_GREEN_AP_ALL \
 		CFG_SPECTRAL_ALL \
-		CFG_HIF \
-		CFG_DCS_ALL \
-		CFG_CFR_ALL \
-		CFG_MLME_SCORE_ALL \
-		CFG_WLAN_CM_UTF_PARAM
+		CFG_HIF
 
 #endif /* __CFG_CONVERGED_H */
 

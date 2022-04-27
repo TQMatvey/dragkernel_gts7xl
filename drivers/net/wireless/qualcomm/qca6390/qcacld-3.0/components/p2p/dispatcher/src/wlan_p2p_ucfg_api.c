@@ -26,7 +26,6 @@
 #include <scheduler_api.h>
 #include "wlan_p2p_public_struct.h"
 #include "wlan_p2p_ucfg_api.h"
-#include "wlan_p2p_api.h"
 #include "../../core/src/wlan_p2p_main.h"
 #include "../../core/src/wlan_p2p_roc.h"
 #include "../../core/src/wlan_p2p_off_chan_tx.h"
@@ -34,7 +33,7 @@
 static inline struct wlan_lmac_if_p2p_tx_ops *
 ucfg_p2p_psoc_get_tx_ops(struct wlan_objmgr_psoc *psoc)
 {
-	return &(psoc->soc_cb.tx_ops->p2p);
+	return &(psoc->soc_cb.tx_ops.p2p);
 }
 
 /**
@@ -136,8 +135,10 @@ QDF_STATUS ucfg_p2p_roc_req(struct wlan_objmgr_psoc *soc,
 	}
 
 	roc_ctx = qdf_mem_malloc(sizeof(*roc_ctx));
-	if (!roc_ctx)
+	if (!roc_ctx) {
+		p2p_err("failed to allocate p2p roc context");
 		return QDF_STATUS_E_NOMEM;
+	}
 
 	status = qdf_idr_alloc(&p2p_soc_obj->p2p_idr, roc_ctx, &id);
 	if (QDF_IS_STATUS_ERROR(status)) {
@@ -227,7 +228,30 @@ QDF_STATUS ucfg_p2p_roc_cancel_req(struct wlan_objmgr_psoc *soc,
 
 QDF_STATUS ucfg_p2p_cleanup_roc_by_vdev(struct wlan_objmgr_vdev *vdev)
 {
-	return wlan_p2p_cleanup_roc_by_vdev(vdev);
+	struct p2p_soc_priv_obj *p2p_soc_obj;
+	struct wlan_objmgr_psoc *psoc;
+
+	p2p_debug("vdev:%pK", vdev);
+
+	if (!vdev) {
+		p2p_debug("null vdev");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	psoc = wlan_vdev_get_psoc(vdev);
+	if (!psoc) {
+		p2p_err("null psoc");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	p2p_soc_obj = wlan_objmgr_psoc_get_comp_private_obj(psoc,
+			WLAN_UMAC_COMP_P2P);
+	if (!p2p_soc_obj) {
+		p2p_err("p2p soc context is NULL");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	return p2p_cleanup_roc_sync(p2p_soc_obj, vdev);
 }
 
 QDF_STATUS ucfg_p2p_cleanup_roc_by_psoc(struct wlan_objmgr_psoc *psoc)
@@ -320,8 +344,10 @@ QDF_STATUS ucfg_p2p_mgmt_tx(struct wlan_objmgr_psoc *soc,
 	}
 
 	tx_action = qdf_mem_malloc(sizeof(*tx_action));
-	if (!tx_action)
+	if (!tx_action) {
+		p2p_err("Failed to allocate tx action context");
 		return QDF_STATUS_E_NOMEM;
+	}
 
 	/* return cookie just for ota ack frames */
 	if (mgmt_frm->dont_wait_for_ack)
@@ -347,6 +373,7 @@ QDF_STATUS ucfg_p2p_mgmt_tx(struct wlan_objmgr_psoc *soc,
 	tx_action->off_chan = mgmt_frm->off_chan;
 	tx_action->buf = qdf_mem_malloc(tx_action->buf_len);
 	if (!(tx_action->buf)) {
+		p2p_err("Failed to allocate buffer for action frame");
 		qdf_mem_free(tx_action);
 		return QDF_STATUS_E_NOMEM;
 	}
@@ -409,8 +436,10 @@ QDF_STATUS ucfg_p2p_mgmt_tx_cancel(struct wlan_objmgr_psoc *soc,
 	p2p_del_random_mac(soc, wlan_vdev_get_id(vdev), cookie, 20);
 
 	cancel_tx = qdf_mem_malloc(sizeof(*cancel_tx));
-	if (!cancel_tx)
+	if (!cancel_tx) {
+		p2p_err("Failed to allocate cancel p2p roc");
 		return QDF_STATUS_E_NOMEM;
+	}
 
 	cancel_tx->p2p_soc_obj = p2p_soc_obj;
 	cancel_tx->cookie = (uintptr_t)tx_ctx;
@@ -585,7 +614,12 @@ QDF_STATUS ucfg_p2p_status_scan(struct wlan_objmgr_vdev *vdev)
 
 QDF_STATUS ucfg_p2p_status_connect(struct wlan_objmgr_vdev *vdev)
 {
-	return wlan_p2p_status_connect(vdev);
+	if (!vdev) {
+		p2p_err("vdev is NULL");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	return p2p_status_connect(vdev);
 }
 
 QDF_STATUS ucfg_p2p_status_disconnect(struct wlan_objmgr_vdev *vdev)

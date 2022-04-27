@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -152,20 +152,12 @@ QDF_STATUS ucfg_tdls_send_mgmt_frame(
 QDF_STATUS ucfg_tdls_responder(struct tdls_set_responder_req *msg_req);
 
 /**
- * ucfg_tdls_teardown_links() - notify TDLS modules to teardown all TDLS links.
- * @psoc: psoc object
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS ucfg_tdls_teardown_links(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_tdls_teardown_links_sync() - teardown all TDLS links.
+ * ucfg_tdls_teardown_links() - teardown all TDLS links
  * @psoc: psoc object
  *
  * Return: None
  */
-void ucfg_tdls_teardown_links_sync(struct wlan_objmgr_psoc *psoc);
+QDF_STATUS ucfg_tdls_teardown_links(struct wlan_objmgr_psoc *psoc);
 
 /**
  * ucfg_tdls_notify_reset_adapter() - notify reset adapter
@@ -176,35 +168,22 @@ void ucfg_tdls_teardown_links_sync(struct wlan_objmgr_psoc *psoc);
 QDF_STATUS ucfg_tdls_notify_reset_adapter(struct wlan_objmgr_vdev *vdev);
 
 /**
- * ucfg_tdls_notify_sta_connect() - notify sta connect to TDLS
- * @vdev_id: pointer to soc object
- * @tdls_chan_swit_prohibited: indicates channel switch capability
- * @tdls_prohibited: indicates tdls allowed or not
- * @vdev: vdev object manager
+ * ucfg_tdls_notify_sta_connect() - notify sta connect
+ * @notify_info: sta notification info
  *
- * Notify sta connect event to TDLS component
- *
- * Return: None
+ * Return: QDF_STATUS
  */
-void ucfg_tdls_notify_sta_connect(uint8_t vdev_id,
-				  bool tdls_chan_swit_prohibited,
-				  bool tdls_prohibited,
-				  struct wlan_objmgr_vdev *vdev);
+QDF_STATUS ucfg_tdls_notify_sta_connect(
+			struct tdls_sta_notify_params *notify_info);
 
 /**
  * ucfg_tdls_notify_sta_disconnect() - notify sta disconnect
- * @vdev_id: pointer to soc object
- * @lfr_roam: indicate, whether disconnect due to lfr roam
- * @bool user_disconnect: disconnect from user space
- * @vdev: vdev object manager
+ * @notify_info: sta notification info
  *
- * Notify sta disconnect event to TDLS component
- *
- * Return: None
+ * Return: QDF_STATUS
  */
-void ucfg_tdls_notify_sta_disconnect(uint8_t vdev_id,
-				     bool lfr_roam, bool user_disconnect,
-				     struct wlan_objmgr_vdev *vdev);
+QDF_STATUS ucfg_tdls_notify_sta_disconnect(
+			struct tdls_sta_notify_params *notify_info);
 
 /**
  * ucfg_tdls_set_operating_mode() - set operating mode
@@ -293,8 +272,7 @@ QDF_STATUS ucfg_tdls_set_rssi(struct wlan_objmgr_vdev *vdev,
 /**
  * ucfg_tdls_notify_connect_failure() - This api is called if STA/P2P
  * connection fails on one iface and to enable/disable TDLS on the other
- * STA/P2P iface which is already connected.It is a wrapper function to
- * API wlan_tdls_notify_connect_failure()
+ * STA/P2P iface which is already connected.
  * @psoc: psoc object
  *
  * Return: void
@@ -372,11 +350,6 @@ QDF_STATUS ucfg_tdls_teardown_links(struct wlan_objmgr_psoc *psoc)
 }
 
 static inline
-void ucfg_tdls_teardown_links_sync(struct wlan_objmgr_psoc *psoc)
-{
-}
-
-static inline
 QDF_STATUS ucfg_tdls_set_rssi(struct wlan_objmgr_vdev *vdev,
 			      uint8_t *mac, int8_t rssi)
 {
@@ -387,20 +360,6 @@ static inline
 void ucfg_tdls_notify_connect_failure(struct wlan_objmgr_psoc *psoc)
 {
 }
-
-static inline
-void ucfg_tdls_notify_sta_connect(uint8_t vdev_id,
-				  bool tdls_chan_swit_prohibited,
-				  bool tdls_prohibited,
-				  struct wlan_objmgr_vdev *vdev)
-{
-}
-
-static inline
-void ucfg_tdls_notify_sta_disconnect(uint8_t vdev_id,
-				     bool lfr_roam, bool user_disconnect,
-				     struct wlan_objmgr_vdev *vdev)
-{}
 
 static inline
 struct wlan_objmgr_vdev *ucfg_get_tdls_vdev(struct wlan_objmgr_psoc *psoc,

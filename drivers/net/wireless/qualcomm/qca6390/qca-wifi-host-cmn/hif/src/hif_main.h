@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -89,7 +89,6 @@
 #define QCA6290_EMULATION_DEVICE_ID (0xabcd)
 #define QCA6290_DEVICE_ID (0x1100)
 #define QCN9000_DEVICE_ID (0x1104)
-#define QCN6122_DEVICE_ID (0xFFFB)
 #define QCA6390_EMULATION_DEVICE_ID (0x0108)
 #define QCA6390_DEVICE_ID (0x1101)
 /* TODO: change IDs for HastingsPrime */
@@ -114,7 +113,6 @@
 					emulation purpose */
 #define QCA8074V2_DEVICE_ID (0xfffe) /* Todo: replace this with actual number */
 #define QCA6018_DEVICE_ID (0xfffd) /* Todo: replace this with actual number */
-#define QCA5018_DEVICE_ID (0xfffc) /* Todo: replace this with actual number */
 /* Genoa */
 #define QCN7605_DEVICE_ID  (0x1102) /* Genoa PCIe device ID*/
 #define QCN7605_COMPOSITE  (0x9901)
@@ -174,7 +172,6 @@ struct hif_softc {
 	struct hif_config_info hif_config;
 	struct hif_target_info target_info;
 	void __iomem *mem;
-	void __iomem *mem_ce;
 	enum qdf_bus_type bus_type;
 	struct hif_bus_ops bus_ops;
 	void *ce_id_to_state[CE_COUNT_MAX];
@@ -186,7 +183,7 @@ struct hif_softc {
 	/* Packet statistics */
 	struct hif_ce_stats pkt_stats;
 	enum hif_target_status target_status;
-	uint64_t event_enable_mask;
+	uint64_t event_disable_mask;
 
 	struct targetdef_s *targetdef;
 	struct ce_reg_def *target_ce_def;
@@ -204,10 +201,6 @@ struct hif_softc {
 	atomic_t link_suspended;
 	uint32_t *vaddr_rri_on_ddr;
 	qdf_dma_addr_t paddr_rri_on_ddr;
-#ifdef CONFIG_BYPASS_QMI
-	uint32_t *vaddr_qmi_bypass;
-	qdf_dma_addr_t paddr_qmi_bypass;
-#endif
 	int linkstate_vote;
 	bool fastpath_mode_on;
 	atomic_t tasklet_from_intr;
@@ -230,16 +223,11 @@ struct hif_softc {
 	uint32_t hif_attribute;
 	int wake_irq;
 	int disable_wake_irq;
-	hif_pm_wake_irq_type wake_irq_type;
 	void (*initial_wakeup_cb)(void *);
 	void *initial_wakeup_priv;
 #ifdef REMOVE_PKT_LOG
 	/* Handle to pktlog device */
 	void *pktlog_dev;
-#endif
-#ifdef WLAN_FEATURE_DP_EVENT_HISTORY
-	/* Pointer to the srng event history */
-	struct hif_event_history *evt_hist[HIF_NUM_INT_CONTEXTS];
 #endif
 
 /*
@@ -253,21 +241,12 @@ struct hif_softc {
 	qdf_shared_mem_t *ipa_ce_ring;
 #endif
 	struct hif_cfg ini_cfg;
-#ifdef HIF_CE_LOG_INFO
-	qdf_notif_block hif_recovery_notifier;
-#endif
 #ifdef HIF_CPU_PERF_AFFINE_MASK
 	/* The CPU hotplug event registration handle */
 	struct qdf_cpuhp_handler *cpuhp_event_handle;
 #endif
-	uint32_t irq_unlazy_disable;
-	/* Should the unlzay support for interrupt delivery be disabled */
-	/* Flag to indicate whether bus is suspended */
-	bool bus_suspended;
-	bool pktlog_init;
-#ifdef FEATURE_RUNTIME_PM
-	/* Variable to track the link state change in RTPM */
-	qdf_atomic_t pm_link_state;
+#ifdef HIF_CE_LOG_INFO
+	qdf_notif_block hif_recovery_notifier;
 #endif
 };
 
@@ -324,7 +303,7 @@ static inline void hif_set_event_hist_mask(struct hif_opaque_softc *hif_handle)
 {
 	struct hif_softc *scn = (struct hif_softc *)hif_handle;
 
-	scn->event_enable_mask = HIF_EVENT_HIST_ENABLE_MASK;
+	scn->event_disable_mask = HIF_EVENT_HIST_DISABLE_MASK;
 }
 #else
 static inline void hif_set_event_hist_mask(struct hif_opaque_softc *hif_handle)
@@ -341,8 +320,6 @@ void hif_shutdown_device(struct hif_opaque_softc *hif_ctx);
 int hif_bus_configure(struct hif_softc *scn);
 void hif_cancel_deferred_target_sleep(struct hif_softc *scn);
 int hif_config_ce(struct hif_softc *scn);
-int hif_config_ce_pktlog(struct hif_opaque_softc *hif_ctx);
-int hif_config_ce_by_id(struct hif_softc *scn, int pipe_num);
 void hif_unconfig_ce(struct hif_softc *scn);
 void hif_ce_prepare_config(struct hif_softc *scn);
 QDF_STATUS hif_ce_open(struct hif_softc *scn);
@@ -366,10 +343,6 @@ QDF_STATUS hif_bus_open(struct hif_softc *ol_sc,
 QDF_STATUS hif_enable_bus(struct hif_softc *ol_sc, struct device *dev,
 	void *bdev, const struct hif_bus_id *bid, enum hif_enable_type type);
 void hif_disable_bus(struct hif_softc *scn);
-#ifdef FEATURE_RUNTIME_PM
-struct hif_runtime_pm_ctx *hif_bus_get_rpm_ctx(struct hif_softc *hif_sc);
-struct device *hif_bus_get_dev(struct hif_softc *hif_sc);
-#endif
 void hif_bus_prevent_linkdown(struct hif_softc *scn, bool flag);
 int hif_bus_get_context_size(enum qdf_bus_type bus_type);
 void hif_read_phy_mem_base(struct hif_softc *scn, qdf_dma_addr_t *bar_value);
@@ -476,5 +449,4 @@ void hif_uninit_rri_on_ddr(struct hif_softc *scn);
 static inline
 void hif_uninit_rri_on_ddr(struct hif_softc *scn) {}
 #endif
-void hif_cleanup_static_buf_to_target(struct hif_softc *scn);
 #endif /* __HIF_MAIN_H__ */

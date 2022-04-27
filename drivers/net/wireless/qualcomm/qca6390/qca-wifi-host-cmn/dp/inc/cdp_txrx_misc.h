@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -25,8 +25,6 @@
 #define _CDP_TXRX_MISC_H_
 
 #include "cdp_txrx_handle.h"
-#include <cdp_txrx_cmn.h>
-
 /**
  * cdp_tx_non_std() - Allow the control-path SW to send data frames
  * @soc: data path soc handle
@@ -54,7 +52,8 @@ cdp_tx_non_std(ol_txrx_soc_handle soc, uint8_t vdev_id,
 	       enum ol_tx_spec tx_spec, qdf_nbuf_t msdu_list)
 {
 	if (!soc || !soc->ops || !soc->ops->misc_ops) {
-		dp_cdp_debug("invalid instance");
+		QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_DEBUG,
+			"%s invalid instance", __func__);
 		return NULL;
 	}
 
@@ -762,7 +761,8 @@ cdp_txrx_ext_stats_request(ol_txrx_soc_handle soc, uint8_t pdev_id,
 			   struct cdp_txrx_ext_stats *req)
 {
 	if (!soc || !soc->ops || !soc->ops->misc_ops || !req) {
-		dp_cdp_debug("Invalid Instance:");
+		QDF_TRACE(QDF_MODULE_ID_CDP, QDF_TRACE_LEVEL_DEBUG,
+			  "%s: Invalid Instance:", __func__);
 		return QDF_STATUS_E_INVAL;
 	}
 
@@ -784,7 +784,8 @@ static inline QDF_STATUS
 cdp_request_rx_hw_stats(ol_txrx_soc_handle soc, uint8_t vdev_id)
 {
 	if (!soc || !soc->ops || !soc->ops->misc_ops) {
-		dp_cdp_debug("Invalid Instance:");
+		QDF_TRACE(QDF_MODULE_ID_CDP, QDF_TRACE_LEVEL_DEBUG,
+			  "%s: Invalid Instance:", __func__);
 		return QDF_STATUS_E_INVAL;
 	}
 
@@ -792,89 +793,5 @@ cdp_request_rx_hw_stats(ol_txrx_soc_handle soc, uint8_t vdev_id)
 		return soc->ops->misc_ops->request_rx_hw_stats(soc, vdev_id);
 
 	return QDF_STATUS_SUCCESS;
-}
-
-/**
- * cdp_vdev_inform_ll_conn() - Inform DP about the low latency connection
- * @soc: soc handle
- * @vdev_id: vdev id
- * @action: Action to be performed (Add/Delete)
- *
- * Returns: QDF_STATUS
- */
-static inline QDF_STATUS
-cdp_vdev_inform_ll_conn(ol_txrx_soc_handle soc, uint8_t vdev_id,
-			enum vdev_ll_conn_actions action)
-{
-	if (!soc || !soc->ops || !soc->ops->misc_ops) {
-		dp_cdp_debug("Invalid Instance:");
-		return QDF_STATUS_E_INVAL;
-	}
-
-	if (soc->ops->misc_ops->vdev_inform_ll_conn)
-		return soc->ops->misc_ops->vdev_inform_ll_conn(soc, vdev_id,
-							       action);
-
-	return QDF_STATUS_SUCCESS;
-}
-
-/**
- * cdp_soc_set_swlm_enable() - Enable or disable software latency manager
- * @soc: soc handle
- * @value: value (enable/disable)
- *
- * Returns: QDF_STATUS
- */
-static inline QDF_STATUS
-cdp_soc_set_swlm_enable(ol_txrx_soc_handle soc, uint8_t value)
-{
-	if (!soc || !soc->ops || !soc->ops->misc_ops) {
-		dp_cdp_debug("Invalid Instance:");
-		return QDF_STATUS_E_INVAL;
-	}
-
-	if (soc->ops->misc_ops->set_swlm_enable)
-		return soc->ops->misc_ops->set_swlm_enable(soc, value);
-
-	return QDF_STATUS_SUCCESS;
-}
-
-/**
- * cdp_soc_is_swlm_enabled() - Check if the software latency manager is
- *			       enabled or not
- * @soc: soc handle
- *
- * Returns: 1 if enabled, 0 if disabled
- */
-static inline uint8_t
-cdp_soc_is_swlm_enabled(ol_txrx_soc_handle soc)
-{
-	if (!soc || !soc->ops || !soc->ops->misc_ops) {
-		dp_cdp_debug("Invalid Instance:");
-		return 0;
-	}
-
-	if (soc->ops->misc_ops->is_swlm_enabled)
-		return soc->ops->misc_ops->is_swlm_enabled(soc);
-
-	return 0;
-}
-
-/**
- * cdp_display_txrx_hw_info() - Dump the DP rings info
- * @soc: soc handle
- *
- * Return: none
- */
-static inline void
-cdp_display_txrx_hw_info(ol_txrx_soc_handle soc)
-{
-	if (!soc || !soc->ops || !soc->ops->misc_ops) {
-		dp_cdp_debug("Invalid Instance:");
-		return;
-	}
-
-	if (soc->ops->misc_ops->display_txrx_hw_info)
-		return soc->ops->misc_ops->display_txrx_hw_info(soc);
 }
 #endif /* _CDP_TXRX_MISC_H_ */

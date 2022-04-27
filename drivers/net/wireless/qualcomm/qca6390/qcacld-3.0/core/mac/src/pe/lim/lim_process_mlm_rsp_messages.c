@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -30,6 +29,7 @@
 #include "lim_send_messages.h"
 #include "lim_admit_control.h"
 #include "lim_send_messages.h"
+#include "lim_ibss_peer_mgmt.h"
 #include "lim_ft.h"
 #include "lim_ft_defs.h"
 #include "lim_session.h"
@@ -42,7 +42,6 @@
 #include "nan_datapath.h"
 #include "wlan_reg_services_api.h"
 #include "wma.h"
-#include "wlan_pkt_capture_ucfg_api.h"
 
 #define MAX_SUPPORTED_PEERS_WEP 16
 
@@ -224,14 +223,11 @@ void lim_process_mlm_start_cnf(struct mac_context *mac, uint32_t *msg_buf)
 					pe_session->ch_center_freq_seg1,
 					BIT(band));
 
-		if (!LIM_IS_AP_ROLE(pe_session))
-			return;
+		if (!(LIM_IS_IBSS_ROLE(pe_session) ||
+			(LIM_IS_AP_ROLE(pe_session))))
+				return;
 		if (pe_session->ch_width == CH_WIDTH_160MHZ) {
-			if (wlan_reg_get_bonded_channel_state_for_freq(
-					mac->pdev, chan_freq,
-					pe_session->ch_width, 0) !=
-					CHANNEL_STATE_DFS)
-				send_bcon_ind = true;
+			send_bcon_ind = false;
 		} else if (pe_session->ch_width == CH_WIDTH_80P80MHZ) {
 			if ((wlan_reg_get_channel_state_for_freq(
 					mac->pdev, chan_freq) !=
@@ -525,7 +521,8 @@ void lim_process_mlm_auth_cnf(struct mac_context *mac_ctx, uint32_t *msg)
 
 	if ((auth_type == eSIR_AUTO_SWITCH) &&
 		(auth_cnf->authType == eSIR_SHARED_KEY) &&
-		((auth_cnf->protStatusCode == STATUS_NOT_SUPPORTED_AUTH_ALG) ||
+		((eSIR_MAC_AUTH_ALGO_NOT_SUPPORTED_STATUS ==
+			auth_cnf->protStatusCode) ||
 		(auth_cnf->resultCode == eSIR_SME_AUTH_TIMEOUT_RESULT_CODE))) {
 		/*
 		 * When shared authentication fails with reason
@@ -711,6 +708,9 @@ lim_fill_sme_assoc_ind_params(
 		sme_assoc_ind->assocReqPtr = assoc_ind->assocReqPtr;
 	}
 
+	sme_assoc_ind->beaconPtr = session_entry->beacon;
+	sme_assoc_ind->beaconLength = session_entry->bcnLen;
+
 	/* Fill in peerMacAddr */
 	qdf_mem_copy(sme_assoc_ind->peerMacAddr, assoc_ind->peerMacAddr,
 		sizeof(tSirMacAddr));
@@ -770,12 +770,9 @@ lim_fill_sme_assoc_ind_params(
 	sme_assoc_ind->max_supp_idx = assoc_ind->max_supp_idx;
 	sme_assoc_ind->max_ext_idx = assoc_ind->max_ext_idx;
 	sme_assoc_ind->max_mcs_idx = assoc_ind->max_mcs_idx;
-	sme_assoc_ind->max_real_mcs_idx = assoc_ind->max_real_mcs_idx;
 	sme_assoc_ind->rx_mcs_map = assoc_ind->rx_mcs_map;
 	sme_assoc_ind->tx_mcs_map = assoc_ind->tx_mcs_map;
 	sme_assoc_ind->ecsa_capable = assoc_ind->ecsa_capable;
-	sme_assoc_ind->ext_cap = assoc_ind->ext_cap;
-	sme_assoc_ind->supported_band = assoc_ind->supported_band;
 
 	if (assoc_ind->ht_caps.present)
 		sme_assoc_ind->HTCaps = assoc_ind->ht_caps;
@@ -878,6 +875,8 @@ void lim_process_mlm_disassoc_ind(struct mac_context *mac, uint32_t *msg_buf)
 		return;
 	}
 	switch (GET_LIM_SYSTEM_ROLE(pe_session)) {
+	case eLIM_STA_IN_IBSS_ROLE:
+		break;
 	case eLIM_STA_ROLE:
 		pe_session->limSmeState = eLIM_SME_WT_DISASSOC_STATE;
 		MTRACE(mac_trace
@@ -1125,6 +1124,8 @@ void lim_process_mlm_purge_sta_ind(struct mac_context *mac, uint32_t *msg_buf)
 	/* Purge STA indication from MLM */
 	resultCode = (tSirResultCodes) pMlmPurgeStaInd->reasonCode;
 	switch (GET_LIM_SYSTEM_ROLE(pe_session)) {
+	case eLIM_STA_IN_IBSS_ROLE:
+		break;
 	case eLIM_STA_ROLE:
 	default:        /* eLIM_AP_ROLE */
 		if (LIM_IS_STA_ROLE(pe_session) &&
@@ -1258,9 +1259,10 @@ QDF_STATUS lim_sta_handle_connect_fail(join_params *param)
 	}
 
 	mac_ctx = cds_get_context(QDF_MODULE_ID_PE);
-	if (!mac_ctx)
+	if (!mac_ctx) {
+		pe_err("Mac context is NULL");
 		return QDF_STATUS_E_INVAL;
-
+	}
 	session = pe_find_session_by_session_id(mac_ctx, param->pe_session_id);
 	if (!session) {
 		pe_err("session is NULL");
@@ -1271,7 +1273,7 @@ QDF_STATUS lim_sta_handle_connect_fail(join_params *param)
 				    &session->dph.dphHashTable);
 	if (sta_ds) {
 		sta_ds->mlmStaContext.disassocReason =
-			REASON_UNSPEC_FAILURE;
+			eSIR_MAC_UNSPEC_FAILURE_REASON;
 		sta_ds->mlmStaContext.cleanupTrigger =
 			eLIM_JOIN_FAILURE;
 		sta_ds->mlmStaContext.resultCode = param->result_code;
@@ -1281,7 +1283,7 @@ QDF_STATUS lim_sta_handle_connect_fail(join_params *param)
 		 * make sure PE is sending eWNI_SME_JOIN_RSP
 		 * to SME
 		 */
-		lim_cleanup_rx_path(mac_ctx, sta_ds, session, true);
+		lim_cleanup_rx_path(mac_ctx, sta_ds, session);
 		qdf_mem_free(session->lim_join_req);
 		session->lim_join_req = NULL;
 		/* Cleanup if add bss failed */
@@ -1466,7 +1468,7 @@ void lim_process_sta_mlm_add_sta_rsp(struct mac_context *mac_ctx,
 			mlm_assoc_cnf.resultCode =
 				eSIR_SME_JOIN_DEAUTH_FROM_AP_DURING_ADD_STA;
 			mlm_assoc_cnf.protStatusCode =
-					   STATUS_UNSPECIFIED_FAILURE;
+					   eSIR_MAC_UNSPEC_FAILURE_STATUS;
 			goto end;
 		}
 	}
@@ -1535,7 +1537,7 @@ void lim_process_sta_mlm_add_sta_rsp(struct mac_context *mac_ctx,
 		else
 			mlm_assoc_cnf.resultCode =
 				(tSirResultCodes) eSIR_SME_REFUSED;
-		mlm_assoc_cnf.protStatusCode = STATUS_UNSPECIFIED_FAILURE;
+		mlm_assoc_cnf.protStatusCode = eSIR_MAC_UNSPEC_FAILURE_STATUS;
 	}
 end:
 	if (msg->bodyptr) {
@@ -1679,47 +1681,6 @@ end:
 }
 
 /**
- * lim_process_mlm_del_all_sta_rsp() - Process DEL STA response
- * @mac_ctx: Pointer to Global MAC structure
- * @msg: The MsgQ header, which contains the response buffer
- *
- * This function is called to process a WMA_DEL_ALL_STA_RSP from
- * WMA Upon receipt of this message from FW.
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-lim_process_mlm_del_all_sta_rsp(struct vdev_mlme_obj *vdev_mlme,
-				struct peer_delete_all_response *rsp)
-{
-	struct pe_session *session_entry;
-	tSirResultCodes status_code = eSIR_SME_SUCCESS;
-	struct mac_context *mac_ctx;
-	struct wlan_objmgr_vdev *vdev;
-	uint8_t vdev_id;
-
-	vdev = vdev_mlme->vdev;
-	vdev_id = wlan_vdev_get_id(vdev);
-
-	mac_ctx = cds_get_context(QDF_MODULE_ID_PE);
-	if (!mac_ctx)
-		return QDF_STATUS_E_INVAL;
-
-	SET_LIM_PROCESS_DEFD_MESGS(mac_ctx, true);
-
-	session_entry = pe_find_session_by_vdev_id(mac_ctx,
-						   vdev_id);
-	if (!session_entry) {
-		pe_err("Session Doesn't exist: %d", vdev_id);
-		return QDF_STATUS_E_INVAL;
-	}
-
-	lim_prepare_and_send_del_all_sta_cnf(mac_ctx, status_code,
-					     session_entry);
-	return QDF_STATUS_SUCCESS;
-}
-
-/**
  * lim_process_mlm_del_sta_rsp() - Process DEL STA response
  * @mac_ctx: Pointer to Global MAC structure
  * @msg: The MsgQ header, which contains the response buffer
@@ -1761,6 +1722,11 @@ void lim_process_mlm_del_sta_rsp(struct mac_context *mac_ctx,
 
 	if (LIM_IS_AP_ROLE(session_entry)) {
 		lim_process_ap_mlm_del_sta_rsp(mac_ctx, msg,
+				session_entry);
+		return;
+	}
+	if (LIM_IS_IBSS_ROLE(session_entry)) {
+		lim_process_ibss_del_sta_rsp(mac_ctx, msg,
 				session_entry);
 		return;
 	}
@@ -1859,7 +1825,7 @@ void lim_process_ap_mlm_del_sta_rsp(struct mac_context *mac_ctx,
 				sta_ds->mlmStaContext.subType, true,
 				sta_ds->mlmStaContext.authType, sta_ds->assocId,
 				true,
-				STATUS_UNSPECIFIED_FAILURE,
+				eSIR_MAC_UNSPEC_FAILURE_STATUS,
 				session_entry);
 		}
 		return;
@@ -1958,7 +1924,7 @@ void lim_process_ap_mlm_add_sta_rsp(struct mac_context *mac,
 				       sta->mlmStaContext.subType,
 				       true, sta->mlmStaContext.authType,
 				       sta->assocId, true,
-				       STATUS_UNSPECIFIED_FAILURE,
+				       eSIR_MAC_UNSPEC_FAILURE_STATUS,
 				       pe_session);
 		goto end;
 	}
@@ -1975,14 +1941,7 @@ void lim_process_ap_mlm_add_sta_rsp(struct mac_context *mac,
 	 * 2) PE receives eWNI_SME_ASSOC_CNF from SME
 	 * 3) BTAMP-AP sends Re/Association Response to BTAMP-STA
 	 */
-	if (lim_send_mlm_assoc_ind(mac, sta, pe_session) != QDF_STATUS_SUCCESS)
-		lim_reject_association(mac, sta->staAddr,
-				       sta->mlmStaContext.subType,
-				       true, sta->mlmStaContext.authType,
-				       sta->assocId, true,
-				       STATUS_UNSPECIFIED_FAILURE,
-				       pe_session);
-
+	lim_send_mlm_assoc_ind(mac, sta, pe_session);
 	/* fall though to reclaim the original Add STA Response message */
 end:
 	if (0 != limMsgQ->bodyptr) {
@@ -2021,11 +1980,24 @@ static void lim_process_ap_mlm_add_bss_rsp(struct mac_context *mac,
 		MTRACE(mac_trace
 			       (mac, TRACE_CODE_MLM_STATE, pe_session->peSessionId,
 			       pe_session->limMlmState));
-		pe_session->limSystemRole = eLIM_AP_ROLE;
+		if (eSIR_IBSS_MODE == pe_session->bssType) {
+			/** IBSS is 'active' when we receive
+			 * Beacon frames from other STAs that are part of same IBSS.
+			 * Mark internal state as inactive until then.
+			 */
+			pe_session->limIbssActive = false;
+			pe_session->statypeForBss = STA_ENTRY_PEER; /* to know session created for self/peer */
+			limResetHBPktCount(pe_session);
+		}
 
+		pe_session->limSystemRole = eLIM_STA_IN_IBSS_ROLE;
+
+		if (eSIR_INFRA_AP_MODE == pe_session->bssType)
+			pe_session->limSystemRole = eLIM_AP_ROLE;
+		else
+			pe_session->limSystemRole = eLIM_STA_IN_IBSS_ROLE;
 		sch_edca_profile_update(mac, pe_session);
-		/* For dual AP case, delete pre auth node if any */
-		lim_delete_pre_auth_list(mac);
+		lim_init_pre_auth_list(mac);
 		/* Check the SAP security configuration.If configured to
 		 * WEP then max clients supported is 16
 		 */
@@ -2072,6 +2044,76 @@ static void lim_process_ap_mlm_add_bss_rsp(struct mac_context *mac,
 
 	lim_send_start_bss_confirm(mac, &mlmStartCnf);
 }
+
+#ifdef QCA_IBSS_SUPPORT
+/*
+ * lim_process_ibss_mlm_add_bss_rsp: API to process add bss response
+ * in IBSS role
+ * @session_entry: pe session entry
+ * @auth_mode: auth mode needs to be updated
+ *
+ * Return: None
+ */
+static void
+lim_process_ibss_mlm_add_bss_rsp(struct mac_context *mac,
+				 struct add_bss_rsp *add_bss_rsp,
+				 struct pe_session *pe_session)
+{
+	tLimMlmStartCnf mlmStartCnf;
+
+	if (!add_bss_rsp) {
+		pe_err("add_bss_rsp is NULL");
+		return;
+	}
+	if (QDF_IS_STATUS_SUCCESS(add_bss_rsp->status)) {
+		pe_debug("WMA_ADD_BSS_RSP returned with QDF_STATUS_SUCCESS");
+
+		/* Set MLME state */
+		pe_session->limMlmState = eLIM_MLM_BSS_STARTED_STATE;
+		MTRACE(mac_trace
+			       (mac, TRACE_CODE_MLM_STATE, pe_session->peSessionId,
+			       pe_session->limMlmState));
+		/** IBSS is 'active' when we receive
+		 * Beacon frames from other STAs that are part of same IBSS.
+		 * Mark internal state as inactive until then.
+		 */
+		pe_session->limIbssActive = false;
+		limResetHBPktCount(pe_session);
+		pe_session->limSystemRole = eLIM_STA_IN_IBSS_ROLE;
+		pe_session->statypeForBss = STA_ENTRY_SELF;
+		sch_edca_profile_update(mac, pe_session);
+		if (0 == pe_session->freePeerIdxHead)
+			lim_init_peer_idxpool(mac, pe_session);
+
+		/* Apply previously set configuration at HW */
+		lim_apply_configuration(mac, pe_session);
+		mlmStartCnf.resultCode = eSIR_SME_SUCCESS;
+		/* If ADD BSS was issued as part of IBSS coalescing, don't send the message to SME, as that is internal to LIM */
+		if (true == mac->lim.gLimIbssCoalescingHappened) {
+			lim_ibss_add_bss_rsp_when_coalescing(mac,
+						pe_session->curr_op_freq,
+						pe_session);
+			return;
+		}
+	} else {
+		pe_err("WMA_ADD_BSS_REQ failed with status %d",
+			add_bss_rsp->status);
+		mlmStartCnf.resultCode = eSIR_SME_HAL_SEND_MESSAGE_FAIL;
+	}
+	/* Send this message to SME, when ADD_BSS is initiated by SME */
+	/* If ADD_BSS is done as part of coalescing, this won't happen. */
+	/* Update PE session Id */
+	mlmStartCnf.sessionId = pe_session->peSessionId;
+	lim_send_start_bss_confirm(mac, &mlmStartCnf);
+}
+#else
+static inline void
+lim_process_ibss_mlm_add_bss_rsp(struct mac_context *mac,
+				 struct add_bss_rsp *add_bss_rsp,
+				 struct pe_session *pe_session)
+{
+}
+#endif
 
 #ifdef WLAN_FEATURE_FILS_SK
 /*
@@ -2166,7 +2208,7 @@ joinFailure:
 
 		/* Send Join response to Host */
 		lim_handle_sme_join_result(mac_ctx, eSIR_SME_REFUSED,
-			STATUS_UNSPECIFIED_FAILURE, session_entry);
+			eSIR_MAC_UNSPEC_FAILURE_STATUS, session_entry);
 	}
 
 }
@@ -2249,7 +2291,7 @@ static void lim_process_sta_mlm_add_bss_rsp(struct mac_context *mac_ctx,
 	} else {
 		pe_err("SessionId: %d ADD_BSS failed!",
 			session_entry->peSessionId);
-		mlm_assoc_cnf.protStatusCode = STATUS_UNSPECIFIED_FAILURE;
+		mlm_assoc_cnf.protStatusCode = eSIR_MAC_UNSPEC_FAILURE_STATUS;
 		/* Return Assoc confirm to SME with failure */
 		if (eLIM_MLM_WT_ADD_BSS_RSP_FT_REASSOC_STATE ==
 				session_entry->limMlmState)
@@ -2302,7 +2344,10 @@ void lim_handle_add_bss_rsp(struct mac_context *mac_ctx,
 	bss_type = session_entry->bssType;
 	/* update PE session Id */
 	mlm_start_cnf.sessionId = session_entry->peSessionId;
-	if (eSIR_NDI_MODE == session_entry->bssType) {
+	if (eSIR_IBSS_MODE == bss_type) {
+		lim_process_ibss_mlm_add_bss_rsp(mac_ctx, add_bss_rsp,
+						 session_entry);
+	} else if (eSIR_NDI_MODE == session_entry->bssType) {
 		lim_process_ndi_mlm_add_bss_rsp(mac_ctx, add_bss_rsp,
 						session_entry);
 	} else {
@@ -2632,7 +2677,7 @@ end:
 		mlmReassocCnf.sessionId = 0;
 	}
 
-	mlmReassocCnf.protStatusCode = STATUS_UNSPECIFIED_FAILURE;
+	mlmReassocCnf.protStatusCode = eSIR_MAC_UNSPEC_FAILURE_STATUS;
 	/* Update PE sessio Id */
 	mlmReassocCnf.sessionId = pe_session->peSessionId;
 
@@ -2702,7 +2747,7 @@ static void lim_process_switch_channel_join_req(
 				QDF_MAC_ADDR_REF(
 				session_entry->pLimMlmJoinReq->bssDescription.bssId));
 
-				lim_send_deauth_mgmt_frame(mac_ctx, REASON_UNSPEC_FAILURE,
+				lim_send_deauth_mgmt_frame(mac_ctx, eSIR_MAC_UNSPEC_FAILURE_REASON,
 					session_entry->pLimMlmJoinReq->bssDescription.bssId,
 					session_entry, false);
 
@@ -2722,7 +2767,7 @@ static void lim_process_switch_channel_join_req(
 		session_entry->limMlmState = eLIM_MLM_JOINED_STATE;
 		join_cnf.sessionId = session_entry->peSessionId;
 		join_cnf.resultCode = eSIR_SME_SUCCESS;
-		join_cnf.protStatusCode = STATUS_SUCCESS;
+		join_cnf.protStatusCode = eSIR_MAC_SUCCESS_STATUS;
 		lim_post_sme_message(mac_ctx, LIM_MLM_JOIN_CNF,
 				     (uint32_t *)&join_cnf);
 		return;
@@ -2794,7 +2839,7 @@ error:
 		join_cnf.sessionId = 0;
 	}
 	join_cnf.resultCode = eSIR_SME_RESOURCES_UNAVAILABLE;
-	join_cnf.protStatusCode = STATUS_UNSPECIFIED_FAILURE;
+	join_cnf.protStatusCode = eSIR_MAC_UNSPEC_FAILURE_STATUS;
 	lim_post_sme_message(mac_ctx, LIM_MLM_JOIN_CNF, (uint32_t *)&join_cnf);
 }
 
@@ -2854,7 +2899,6 @@ void lim_process_switch_channel_rsp(struct mac_context *mac,
 	QDF_STATUS status;
 	uint16_t channelChangeReasonCode;
 	struct pe_session *pe_session;
-	struct wlan_channel *vdev_chan;
 	/* we need to process the deferred message since the initiating req. there might be nested request. */
 	/* in the case of nested request the new request initiated from the response will take care of resetting */
 	/* the deffered flag. */
@@ -2872,18 +2916,6 @@ void lim_process_switch_channel_rsp(struct mac_context *mac,
 	pe_session->chainMask = rsp->chain_mask;
 	pe_session->smpsMode = rsp->smps_mode;
 	pe_session->channelChangeReasonCode = 0xBAD;
-
-	vdev_chan = wlan_vdev_mlme_get_des_chan(pe_session->vdev);
-
-	if (WLAN_REG_IS_24GHZ_CH_FREQ(vdev_chan->ch_freq)) {
-		if (vdev_chan->ch_phymode == WLAN_PHYMODE_11B)
-			pe_session->nwType = eSIR_11B_NW_TYPE;
-		else
-			pe_session->nwType = eSIR_11G_NW_TYPE;
-	} else {
-		pe_session->nwType = eSIR_11A_NW_TYPE;
-	}
-	pe_debug("new network type for peer: %d", pe_session->nwType);
 	switch (channelChangeReasonCode) {
 	case LIM_SWITCH_CHANNEL_REASSOC:
 		lim_process_switch_channel_re_assoc_req(mac, pe_session, status);
@@ -2915,9 +2947,6 @@ void lim_process_switch_channel_rsp(struct mac_context *mac,
 			pe_debug("Send p2p operating channel change conf action frame once first beacon is received on new channel");
 			pe_session->send_p2p_conf_frame = true;
 		}
-
-		if (ucfg_pkt_capture_get_pktcap_mode(mac->psoc))
-			ucfg_pkt_capture_record_channel(pe_session->vdev);
 		break;
 	case LIM_SWITCH_CHANNEL_SAP_DFS:
 		/* Note: This event code specific to SAP mode
@@ -2943,8 +2972,6 @@ void lim_process_switch_channel_rsp(struct mac_context *mac,
 		 */
 		policy_mgr_update_connection_info(mac->psoc,
 						  pe_session->smeSessionId);
-		if (ucfg_pkt_capture_get_pktcap_mode(mac->psoc))
-			ucfg_pkt_capture_record_channel(pe_session->vdev);
 		break;
 	default:
 		break;

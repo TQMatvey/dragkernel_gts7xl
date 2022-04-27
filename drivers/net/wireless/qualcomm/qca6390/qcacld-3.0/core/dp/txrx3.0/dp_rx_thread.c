@@ -319,17 +319,7 @@ enq_done:
 	return QDF_STATUS_SUCCESS;
 }
 
-/**
- * dp_rx_tm_thread_gro_flush_ind() - Rxthread flush ind post
- * @rx_thread: rx_thread in which the flush needs to be handled
- * @flush_code: flush code to differentiate low TPUT flush
- *
- * Return: QDF_STATUS_SUCCESS on success or qdf error code on
- * failure
- */
-static QDF_STATUS
-dp_rx_tm_thread_gro_flush_ind(struct dp_rx_thread *rx_thread,
-			      enum dp_rx_gro_flush_code flush_code)
+static QDF_STATUS dp_rx_tm_thread_gro_flush_ind(struct dp_rx_thread *rx_thread)
 {
 	struct dp_rx_tm_handle_cmn *tm_handle_cmn;
 	qdf_wait_queue_head_t *wait_q_ptr;
@@ -337,7 +327,7 @@ dp_rx_tm_thread_gro_flush_ind(struct dp_rx_thread *rx_thread,
 	tm_handle_cmn = rx_thread->rtm_handle_cmn;
 	wait_q_ptr = &rx_thread->wait_q;
 
-	qdf_atomic_set(&rx_thread->gro_flush_ind, flush_code);
+	qdf_atomic_set(&rx_thread->gro_flush_ind, 1);
 
 	dp_debug("Flush indication received");
 
@@ -444,39 +434,19 @@ static int dp_rx_thread_process_nbufq(struct dp_rx_thread *rx_thread)
 
 /**
  * dp_rx_thread_gro_flush() - flush GRO packets for the RX thread
- * @rx_thread: rx_thread to be processed
- * @gro_flush_code: flush code to differentiating flushes
+ * @rx_thread - rx_thread to be processed
  *
- * Return: void
+ * Returns: void
  */
-static void dp_rx_thread_gro_flush(struct dp_rx_thread *rx_thread,
-				   enum dp_rx_gro_flush_code gro_flush_code)
+static void dp_rx_thread_gro_flush(struct dp_rx_thread *rx_thread)
 {
 	dp_debug("flushing packets for thread %u", rx_thread->id);
 
 	local_bh_disable();
-	dp_rx_napi_gro_flush(&rx_thread->napi, gro_flush_code);
+	napi_gro_flush(&rx_thread->napi, false);
 	local_bh_enable();
 
 	rx_thread->stats.gro_flushes++;
-}
-
-/**
- * dp_rx_should_flush() - Determines whether the RX thread should be flushed.
- * @rx_thread: rx_thread to be processed
- *
- * Return: enum dp_rx_gro_flush_code
- */
-static inline enum dp_rx_gro_flush_code
-dp_rx_should_flush(struct dp_rx_thread *rx_thread)
-{
-	enum dp_rx_gro_flush_code gro_flush_code;
-
-	gro_flush_code = qdf_atomic_read(&rx_thread->gro_flush_ind);
-	if (qdf_atomic_test_bit(RX_VDEV_DEL_EVENT, &rx_thread->event_flag))
-		gro_flush_code = DP_RX_GRO_NORMAL_FLUSH;
-
-	return gro_flush_code;
 }
 
 /**
@@ -493,8 +463,6 @@ dp_rx_should_flush(struct dp_rx_thread *rx_thread)
  */
 static int dp_rx_thread_sub_loop(struct dp_rx_thread *rx_thread, bool *shutdown)
 {
-	enum dp_rx_gro_flush_code gro_flush_code;
-
 	while (true) {
 		if (qdf_atomic_test_and_clear_bit(RX_SHUTDOWN_EVENT,
 						  &rx_thread->event_flag)) {
@@ -511,12 +479,10 @@ static int dp_rx_thread_sub_loop(struct dp_rx_thread *rx_thread, bool *shutdown)
 
 		dp_rx_thread_process_nbufq(rx_thread);
 
-		gro_flush_code = dp_rx_should_flush(rx_thread);
-		/* Only flush when gro_flush_code is either
-		 * DP_RX_GRO_NORMAL_FLUSH or DP_RX_GRO_LOW_TPUT_FLUSH
-		 */
-		if (gro_flush_code != DP_RX_GRO_NOT_FLUSH) {
-			dp_rx_thread_gro_flush(rx_thread, gro_flush_code);
+		if (qdf_atomic_read(&rx_thread->gro_flush_ind) |
+		    qdf_atomic_test_bit(RX_VDEV_DEL_EVENT,
+					&rx_thread->event_flag)) {
+			dp_rx_thread_gro_flush(rx_thread);
 			qdf_atomic_set(&rx_thread->gro_flush_ind, 0);
 		}
 
@@ -1044,14 +1010,12 @@ QDF_STATUS dp_rx_tm_enqueue_pkt(struct dp_rx_tm_handle *rx_tm_hdl,
 }
 
 QDF_STATUS
-dp_rx_tm_gro_flush_ind(struct dp_rx_tm_handle *rx_tm_hdl, int rx_ctx_id,
-		       enum dp_rx_gro_flush_code flush_code)
+dp_rx_tm_gro_flush_ind(struct dp_rx_tm_handle *rx_tm_hdl, int rx_ctx_id)
 {
 	uint8_t selected_thread_id;
 
 	selected_thread_id = dp_rx_tm_select_thread(rx_tm_hdl, rx_ctx_id);
-	dp_rx_tm_thread_gro_flush_ind(rx_tm_hdl->rx_thread[selected_thread_id],
-				      flush_code);
+	dp_rx_tm_thread_gro_flush_ind(rx_tm_hdl->rx_thread[selected_thread_id]);
 
 	return QDF_STATUS_SUCCESS;
 }

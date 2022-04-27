@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -215,16 +215,6 @@ ucfg_pmo_is_mc_addr_list_enabled(struct wlan_objmgr_psoc *psoc);
  */
 enum powersave_mode
 ucfg_pmo_get_power_save_mode(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_pmo_get_default_power_save_mode() - Get default power save mode
- * from ini config
- * @psoc: pointer to psoc object
- *
- * Return: power save mode
- */
-enum powersave_mode
-ucfg_pmo_get_default_power_save_mode(struct wlan_objmgr_psoc *psoc);
 
 /**
  * ucfg_pmo_set_power_save_mode() - Set power save mode
@@ -696,6 +686,24 @@ ucfg_pmo_set_wow_enable(struct wlan_objmgr_psoc *psoc,
 			enum pmo_wow_enable_type val);
 
 /**
+ * ucfg_pmo_is_wowlan_deauth_enabled() - Get wowlan deauth enable
+ * @psoc: pointer to psoc object
+ *
+ * Return: wowlan deauth enable or not
+ */
+bool
+ucfg_pmo_is_wowlan_deauth_enabled(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * ucfg_pmo_is_wowlan_disassoc_enabled() - Get wowlan disassoc enable
+ * @psoc: pointer to psoc object
+ *
+ * Return: wowlan disassoc enable
+ */
+bool
+ucfg_pmo_is_wowlan_disassoc_enabled(struct wlan_objmgr_psoc *psoc);
+
+/**
  * ucfg_pmo_get_gtk_rsp(): API to send gtk response request to fwr
  * @vdev: objmgr vdev handle
  * @gtk_rsp: pmo gtk response request
@@ -1020,22 +1028,6 @@ uint16_t ucfg_pmo_get_wow_pulse_interval_high(struct wlan_objmgr_psoc *psoc);
  * Return: wow pulse interval high configuration
  */
 uint16_t ucfg_pmo_get_wow_pulse_interval_low(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_pmo_get_wow_pulse_repeat_count() - to get wow pulse repeat count
- * @psoc: objmgr psoc handle
- *
- * Return: wow pulse repeat count configuration
- */
-uint32_t ucfg_pmo_get_wow_pulse_repeat_count(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_pmo_get_wow_pulse_init_state() - to get wow pulse init state
- * @psoc: objmgr psoc handle
- *
- * Return: wow pulse init state configuration
- */
-uint32_t ucfg_pmo_get_wow_pulse_init_state(struct wlan_objmgr_psoc *psoc);
 #else
 static inline bool
 ucfg_pmo_is_wow_pulse_enabled(struct wlan_objmgr_psoc *psoc)
@@ -1051,18 +1043,6 @@ ucfg_pmo_get_wow_pulse_pin(struct wlan_objmgr_psoc *psoc)
 
 static inline uint16_t
 ucfg_pmo_get_wow_pulse_interval_high(struct wlan_objmgr_psoc *psoc)
-{
-	return 0;
-}
-
-static inline uint32_t
-ucfg_pmo_get_wow_pulse_repeat_count(struct wlan_objmgr_psoc *psoc)
-{
-	return 0;
-}
-
-static inline uint32_t
-ucfg_pmo_get_wow_pulse_init_state(struct wlan_objmgr_psoc *psoc)
 {
 	return 0;
 }
@@ -1123,41 +1103,6 @@ ucfg_pmo_get_active_uc_apf_mode(struct wlan_objmgr_psoc *psoc);
  */
 enum active_apf_mode
 ucfg_pmo_get_active_mc_bc_apf_mode(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_pmo_update_wow_reason_parsed() - set wow reason if parsed
- * @psoc_ctx: pointer to objmgr psoc handle
- * @value: set true if wow reason parsed or false if not
- *
- * Return: none
- */
-void ucfg_pmo_update_wow_reason_parsed(struct wlan_objmgr_psoc *psoc,
-				       bool value);
-
-/**
- * ucfg_pmo_get_wow_reason_parsed() - get wow reason if parsed
- * @psoc_ctx: pointer to objmgr psoc handle
- *
- * Return: true if wow reason parsed or false if not
- */
-bool ucfg_pmo_get_wow_reason_parsed(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_pmo_update_wow_reason() - update wow reason
- * @psoc_ctx: pointer to objmgr psoc handle
- * @value: wow reason
- *
- * Return: void
- */
-void ucfg_pmo_update_wow_reason(struct wlan_objmgr_psoc *psoc, int32_t value);
-
-/**
- * ucfg_pmo_get_wow_reason() - get wow reason
- * @psoc_ctx: pointer to objmgr psoc handle
- *
- * Return: wow reason
- */
-int32_t ucfg_pmo_get_wow_reason(struct wlan_objmgr_psoc *psoc);
 #ifdef FEATURE_WLAN_APF
 /**
  * ucfg_pmo_is_apf_enabled() - to get apf configuration
@@ -1173,60 +1118,6 @@ static inline bool ucfg_pmo_is_apf_enabled(struct wlan_objmgr_psoc *psoc)
 }
 #endif
 
-#ifdef WLAN_ENABLE_GPIO_WAKEUP
-/**
- * ucfg_pmo_get_enable_gpio_wakeup() - to get gpio wakeup enable configuration
- * @psoc: objmgr psoc handle
- *
- * Return: gpio wakeup enable configuration
- */
-bool ucfg_pmo_is_gpio_wakeup_enabled(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_pmo_get_gpio_wakeup_pin() - to get gpio wakeup pin number
- * @psoc: objmgr psoc handle
- *
- * Return: gpio wakeup pin number
- */
-uint32_t ucfg_pmo_get_gpio_wakeup_pin(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_pmo_get_gpio_wakeup_mode() - to get gpio wakeup interrupt mode
- * @psoc: objmgr psoc handle
- *
- * Return: gpio wakeup mode
- */
-enum pmo_gpio_wakeup_mode
-ucfg_pmo_get_gpio_wakeup_mode(struct wlan_objmgr_psoc *psoc);
-#else
-static inline bool
-ucfg_pmo_is_gpio_wakeup_enabled(struct wlan_objmgr_psoc *psoc)
-{
-	return false;
-}
-
-static inline uint32_t
-ucfg_pmo_get_gpio_wakeup_pin(struct wlan_objmgr_psoc *psoc)
-{
-	return 0;
-}
-
-static inline enum pmo_gpio_wakeup_mode
-ucfg_pmo_get_gpio_wakeup_mode(struct wlan_objmgr_psoc *psoc)
-{
-	return PMO_GPIO_WAKEUP_MODE_INVALID;
-}
-#endif
-
-/*
- * ucfg_pmo_get_disconnect_sap_tdls_in_wow: get if disconnect sap/p2p_go
- * or tdls in wow
- * @psoc: objmgr psoc
- *
- * Return: true in case support else false
- */
-bool
-ucfg_pmo_get_disconnect_sap_tdls_in_wow(struct wlan_objmgr_psoc *psoc);
 #else /* WLAN_POWER_MANAGEMENT_OFFLOAD */
 static inline QDF_STATUS
 ucfg_pmo_psoc_open(struct wlan_objmgr_psoc *psoc)
@@ -1829,12 +1720,6 @@ ucfg_pmo_get_power_save_mode(struct wlan_objmgr_psoc *psoc)
 	return 0;
 }
 
-static inline enum powersave_mode
-ucfg_pmo_get_default_power_save_mode(struct wlan_objmgr_psoc *psoc)
-{
-	return PMO_PS_ADVANCED_POWER_SAVE_DISABLE;
-}
-
 static inline void
 ucfg_pmo_set_power_save_mode(struct wlan_objmgr_psoc *psoc,
 			     enum powersave_mode val)
@@ -1875,12 +1760,6 @@ enum active_apf_mode
 ucfg_pmo_get_active_mc_bc_apf_mode(struct wlan_objmgr_psoc *psoc)
 {
 	return 0;
-}
-
-static inline bool
-ucfg_pmo_get_disconnect_sap_tdls_in_wow(struct wlan_objmgr_psoc *psoc)
-{
-	return false;
 }
 #endif /* WLAN_POWER_MANAGEMENT_OFFLOAD */
 
@@ -2077,25 +1956,4 @@ ucfg_pmo_get_runtime_pm_delay(struct wlan_objmgr_psoc *psoc)
  */
 bool
 ucfg_pmo_get_enable_sap_suspend(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_pmo_get_sap_mode_bus_suspend() - get PMO config for PCIe bus
- * suspend in SAP mode with one or more clients
- * @psoc: pointer to psoc object
- *
- * Return: bool
- */
-bool
-ucfg_pmo_get_sap_mode_bus_suspend(struct wlan_objmgr_psoc *psoc);
-
-/**
- * ucfg_pmo_get_go_mode_bus_suspend() - get PMO config for PCIe bus
- * suspend in P2PGO mode with one or more clients
- * @psoc: pointer to psoc object
- *
- * Return: bool
- */
-bool
-ucfg_pmo_get_go_mode_bus_suspend(struct wlan_objmgr_psoc *psoc);
-
 #endif /* end  of _WLAN_PMO_UCFG_API_H_ */

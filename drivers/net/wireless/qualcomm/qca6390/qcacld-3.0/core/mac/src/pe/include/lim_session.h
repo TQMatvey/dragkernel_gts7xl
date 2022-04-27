@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -19,7 +19,6 @@
 #if !defined(__LIM_SESSION_H)
 #define __LIM_SESSION_H
 
-#include "wlan_cm_public_struct.h"
 /**=========================================================================
 
    \file  lim_session.h
@@ -137,16 +136,10 @@ struct obss_detection_cfg {
  * @ap_ecsa_wakelock: wakelock to complete CSA operation.
  * @ap_ecsa_runtime_lock: runtime lock to complete SAP CSA operation.
  * to Adaptive 11R network
- * @prev_auth_seq_num: Sequence number of previously received auth frame to
- * detect duplicate frames.
- * @prev_auth_mac_addr: mac_addr of the sta correspond to @prev_auth_seq_num
  */
 struct pe_session {
 	/* To check session table is in use or free */
 	uint8_t available;
-#ifdef FEATURE_CM_ENABLE
-	wlan_cm_id cm_id;
-#endif
 	uint16_t peSessionId;
 	union {
 		uint8_t smeSessionId;
@@ -188,6 +181,7 @@ struct pe_session {
 	/* Identifies the 40 MHz extension channel */
 	ePhyChanBondState htSecondaryChannelOffset;
 	enum reg_wifi_band limRFBand;
+	uint8_t limIbssActive;  /* TO SUPPORT CONCURRENCY */
 
 	/* These global varibales moved to session Table to support BT-AMP : Oct 9th review */
 	tAniAuthType limCurrentAuthType;
@@ -245,6 +239,8 @@ struct pe_session {
 	uint8_t *tspecIes;
 #endif
 	uint32_t encryptType;
+
+	bool bTkipCntrMeasActive;       /* Used to keep record of TKIP counter measures start/stop */
 
 	uint8_t gLimProtectionControl;  /* used for 11n protection */
 
@@ -311,14 +307,13 @@ struct pe_session {
 	uint8_t limWmeEnabled:1;        /* WME */
 	uint8_t limWsmEnabled:1;        /* WSM */
 	uint8_t limHcfEnabled:1;
+	uint8_t lim11dEnabled:1;
 #ifdef WLAN_FEATURE_11W
 	uint8_t limRmfEnabled:1;        /* 11W */
 #endif
 	uint32_t lim11hEnable;
 
 	int8_t maxTxPower;   /* MIN (Regulatory and local power constraint) */
-	int8_t min_11h_pwr;
-	int8_t max_11h_pwr;
 	enum QDF_OPMODE opmode;
 	int8_t txMgmtPower;
 	bool is11Rconnection;
@@ -392,6 +387,8 @@ struct pe_session {
 	  * AP network
 	  */
 	uint32_t peerAIDBitmap[2];
+	bool tdls_prohibited;
+	bool tdls_chan_swit_prohibited;
 	bool tdls_send_set_state_disable;
 #endif
 	bool fWaitForProbeRsp;
@@ -401,8 +398,10 @@ struct pe_session {
 	int8_t rssi;
 #endif
 	uint8_t max_amsdu_num;
-	struct mlme_ht_capabilities_info ht_config;
-	struct wlan_vht_config vht_config;
+	uint8_t isCoalesingInIBSSAllowed;
+
+	struct ht_config ht_config;
+	struct sir_vht_config vht_config;
 	/*
 	 * Place holder for StartBssReq message
 	 * received by SME state machine
@@ -528,6 +527,7 @@ struct pe_session {
 	uint16_t beacon_tx_rate;
 	uint8_t *access_policy_vendor_ie;
 	uint8_t access_policy;
+	bool ignore_assoc_disallowed;
 	bool send_p2p_conf_frame;
 	bool process_ho_fail;
 	/* Number of STAs that do not support ECSA capability */
@@ -555,12 +555,12 @@ struct pe_session {
 #endif
 	/* previous auth frame's sequence number */
 	uint16_t prev_auth_seq_num;
-	tSirMacAddr prev_auth_mac_addr;
 	struct obss_detection_cfg obss_offload_cfg;
 	struct obss_detection_cfg current_obss_detection;
 	bool is_session_obss_offload_enabled;
 	bool is_obss_reset_timer_initialized;
 	bool sae_pmk_cached;
+	bool fw_roaming_started;
 	bool recvd_deauth_while_roaming;
 	bool recvd_disassoc_while_roaming;
 	bool deauth_disassoc_rc;
@@ -621,6 +621,7 @@ static inline void pe_free_dph_node_array_buffer(void)
  * @numSta: number of stations
  * @bssType: bss type of new session to do conditional memory allocation.
  * @vdev_id: vdev_id
+ * @opmode: operating mode
  *
  * This function returns the session context and the session ID if the session
  * corresponding to the passed BSSID is found in the PE session table.
@@ -630,7 +631,7 @@ static inline void pe_free_dph_node_array_buffer(void)
 struct pe_session *pe_create_session(struct mac_context *mac,
 				     uint8_t *bssid, uint8_t *sessionId,
 				     uint16_t numSta, enum bss_type bssType,
-				     uint8_t vdev_id);
+				     uint8_t vdev_id, enum QDF_OPMODE opmode);
 
 /**
  * pe_find_session_by_bssid() - looks up the PE session given the BSSID.
@@ -745,6 +746,7 @@ void pe_delete_fils_info(struct pe_session *session);
  *
  * @mac_ctx: pointer to global mac context
  * @session: pointer to the PE session
+ * @ibss_ssid: SSID of the session for IBSS sessions
  * @sap_channel: Operating Channel of the session for SAP sessions
  *
  * Sets the beacon/probe filter in the global mac context to filter
@@ -754,6 +756,7 @@ void pe_delete_fils_info(struct pe_session *session);
  */
 void lim_set_bcn_probe_filter(struct mac_context *mac_ctx,
 				struct pe_session *session,
+				tSirMacSSid *ibss_ssid,
 				uint8_t sap_channel);
 
 /**

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2020, The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -28,7 +28,6 @@ struct wmi_hang_data_fixed_param {
 
 #define WMI_EVT_HIST 0
 #define WMI_CMD_HIST 1
-#define NUM_HANG_WMI_HISTORY 1
 
 static void wmi_log_history(struct notifier_block *block, void *data,
 			    uint8_t wmi_history)
@@ -37,7 +36,7 @@ static void wmi_log_history(struct notifier_block *block, void *data,
 							notif_block);
 	struct qdf_notifer_data *wmi_hang_data = data;
 	int nread, pos, total_len;
-	unsigned int wmi_ring_size = NUM_HANG_WMI_HISTORY;
+	unsigned int wmi_ring_size = 1;
 	uint64_t secs, usecs;
 	struct wmi_event_debug *wmi_evt;
 	struct wmi_unified *wmi_handle;
@@ -53,7 +52,7 @@ static void wmi_log_history(struct notifier_block *block, void *data,
 	if (!wmi_handle)
 		return;
 
-	if (wmi_history == WMI_EVT_HIST)
+	if (wmi_history)
 		wmi_log = &wmi_handle->log_info.wmi_event_log_buf_info;
 	else
 		wmi_log = &wmi_handle->log_info.wmi_command_log_buf_info;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -43,14 +43,9 @@ QDF_STATUS csr_roam_issue_reassociate(struct mac_context *mac, uint32_t vdev_id,
 	/* Set the roaming substate to 'join attempt'... */
 	csr_roam_substate_change(mac, eCSR_ROAM_SUBSTATE_REASSOC_REQ, vdev_id);
 	sme_debug("calling csr_send_join_req_msg (eWNI_SME_REASSOC_REQ)");
-	/* This is temp ifdef will be removed in near future */
-#ifndef FEATURE_CM_ENABLE
 	/* attempt to Join this BSS... */
 	return csr_send_join_req_msg(mac, vdev_id, bss_desc, roam_profile, ies,
 				     eWNI_SME_REASSOC_REQ);
-#else
-	return QDF_STATUS_SUCCESS;
-#endif
 }
 
 QDF_STATUS
@@ -115,7 +110,7 @@ csr_roam_issue_reassociate_cmd(struct mac_context *mac,	uint32_t sessionId)
 		pCommand = tmp_command;
 		/* Change the substate in case it is wait-for-key */
 		if (CSR_IS_WAIT_FOR_KEY(mac, sessionId)) {
-			csr_roam_stop_wait_for_key_timer(mac, sessionId);
+			csr_roam_stop_wait_for_key_timer(mac);
 			csr_roam_substate_change(mac, eCSR_ROAM_SUBSTATE_NONE,
 						 sessionId);
 		}
@@ -141,7 +136,6 @@ void csr_neighbor_roam_process_scan_results(struct mac_context *mac_ctx,
 	uint32_t bss_chan_freq;
 	uint8_t num_candidates = 0;
 	uint8_t num_dropped = 0;
-	struct cm_roam_values_copy config;
 	/*
 	 * first iteration of scan list should consider
 	 * age constraint for candidates
@@ -228,10 +222,8 @@ void csr_neighbor_roam_process_scan_results(struct mac_context *mac_ctx,
 					  "SKIP-not a candidate AP for OS requested roam");
 				continue;
 			}
-			wlan_cm_roam_cfg_get_value(mac_ctx->psoc, sessionid,
-						   IS_11R_CONNECTION,
-						   &config);
-			if ((config.bool_value) &&
+
+			if ((n_roam_info->is11rAssoc) &&
 			    (!csr_neighbor_roam_is_preauth_candidate(mac_ctx,
 					sessionid, descr->bssId))) {
 				sme_err("BSSID in preauth fail list. Ignore");
@@ -240,7 +232,7 @@ void csr_neighbor_roam_process_scan_results(struct mac_context *mac_ctx,
 
 #ifdef FEATURE_WLAN_ESE
 			if (!csr_roam_is_roam_offload_scan_enabled(mac_ctx) &&
-			    (wlan_cm_get_ese_assoc(mac_ctx->pdev, sessionid)) &&
+			    (n_roam_info->isESEAssoc) &&
 			    !csr_neighbor_roam_is_preauth_candidate(mac_ctx,
 				sessionid, descr->bssId)) {
 				sme_err("BSSID in preauth faillist. Ignore");
@@ -385,7 +377,7 @@ QDF_STATUS csr_neighbor_roam_process_scan_complete(struct mac_context *mac,
 		qdf_mem_free(filter);
 		return QDF_STATUS_E_FAILURE;
 	}
-	hstatus = csr_scan_get_result(mac, filter, &scanResult, true);
+	hstatus = csr_scan_get_result(mac, filter, &scanResult);
 	qdf_mem_free(filter);
 	if (hstatus != QDF_STATUS_SUCCESS)
 		sme_err("Get Scan Result status code %d", hstatus);
@@ -401,7 +393,7 @@ QDF_STATUS csr_neighbor_roam_process_scan_complete(struct mac_context *mac,
 
 	if (csr_roam_is_roam_offload_scan_enabled(mac)) {
 		if (pNeighborRoamInfo->uOsRequestedHandoff) {
-			wlan_cm_roam_send_rso_cmd(mac->psoc, sessionId,
+			csr_roam_offload_scan(mac, sessionId,
 				ROAM_SCAN_OFFLOAD_START,
 				REASON_NO_CAND_FOUND_OR_NOT_ROAMING_NOW);
 			pNeighborRoamInfo->uOsRequestedHandoff = 0;
@@ -409,7 +401,7 @@ QDF_STATUS csr_neighbor_roam_process_scan_complete(struct mac_context *mac,
 			/* There is no candidate or We are not roaming Now.
 			 * Inform the FW to restart Roam Offload Scan
 			 */
-			wlan_cm_roam_send_rso_cmd(mac->psoc, sessionId,
+			csr_roam_offload_scan(mac, sessionId,
 				ROAM_SCAN_OFFLOAD_RESTART,
 				REASON_NO_CAND_FOUND_OR_NOT_ROAMING_NOW);
 		}
@@ -554,7 +546,7 @@ void csr_neighbor_roam_request_handoff(struct mac_context *mac_ctx,
 		eCSR_ROAM_HANDOVER_SUCCESS);
 	/* Free the profile.. Just to make sure we dont leak memory here */
 	csr_release_profile(mac_ctx,
-			    &neighbor_roam_info->csrNeighborRoamProfile);
+		&neighbor_roam_info->csrNeighborRoamProfile);
 	/*
 	 * Create the Handoff AP profile. Copy the currently connected profile
 	 * and update only the BSSID and channel number. This should happen
@@ -576,18 +568,15 @@ void csr_neighbor_roam_request_handoff(struct mac_context *mac_ctx,
 
 	sme_debug("csr_roamHandoffRequested: disassociating with current AP");
 
-	/* This is temp ifdef will be removed in near future */
-#ifndef FEATURE_CM_ENABLE
 	if (!QDF_IS_STATUS_SUCCESS(csr_roam_issue_disassociate_cmd(
 					mac_ctx,
 					session_id,
 					eCSR_DISCONNECT_REASON_HANDOFF,
-					REASON_UNSPEC_FAILURE))) {
+					eSIR_MAC_UNSPEC_FAILURE_REASON))) {
 		sme_warn("csr_roamHandoffRequested: fail to issue disassoc");
 		qdf_mem_free(roam_info);
 		return;
 	}
-#endif
 	/* notify HDD for handoff, providing the BSSID too */
 	roam_info->reasonCode = eCsrRoamReasonBetterAP;
 
@@ -609,15 +598,12 @@ csr_neighbor_roam_get_handoff_ap_info(struct mac_context *mac,
 	tpCsrNeighborRoamControlInfo ngbr_roam_info =
 		&mac->roam.neighborRoamInfo[session_id];
 	tpCsrNeighborRoamBSSInfo bss_node = NULL;
-	struct cm_roam_values_copy config;
 
 	if (!hand_off_node) {
 		QDF_ASSERT(hand_off_node);
 		return false;
 	}
-	wlan_cm_roam_cfg_get_value(mac->psoc, session_id, IS_11R_CONNECTION,
-				   &config);
-	if (config.bool_value) {
+	if (ngbr_roam_info->is11rAssoc) {
 		/* Always the BSS info in the head is the handoff candidate */
 		bss_node = csr_neighbor_roam_next_roamable_ap(
 			mac,
@@ -628,7 +614,7 @@ csr_neighbor_roam_get_handoff_ap_info(struct mac_context *mac,
 				ngbr_roam_info->FTRoamInfo.preAuthDoneList));
 	} else
 #ifdef FEATURE_WLAN_ESE
-	if (wlan_cm_get_ese_assoc(mac->pdev, session_id)) {
+	if (ngbr_roam_info->isESEAssoc) {
 		/* Always the BSS info in the head is the handoff candidate */
 		bss_node =
 			csr_neighbor_roam_next_roamable_ap(mac,

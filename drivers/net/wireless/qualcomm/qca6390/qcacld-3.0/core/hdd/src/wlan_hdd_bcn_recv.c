@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -40,9 +40,8 @@
 #define CHAR_BIT 8	/* Normally in <limits.h> */
 #endif
 
-const struct nla_policy
-	beacon_reporting_params_policy
-	[QCA_WLAN_VENDOR_ATTR_BEACON_REPORTING_MAX + 1] = {
+static const struct nla_policy
+beacon_reporting_params[QCA_WLAN_VENDOR_ATTR_BEACON_REPORTING_MAX + 1] = {
 	[QCA_WLAN_VENDOR_ATTR_BEACON_REPORTING_OP_TYPE] = {.type = NLA_U8},
 	[QCA_WLAN_VENDOR_ATTR_BEACON_REPORTING_ACTIVE_REPORTING] = {.type =
 								     NLA_FLAG},
@@ -280,7 +279,7 @@ static int hdd_handle_beacon_reporting_stop_op(struct hdd_context *hdd_ctx,
 		return errno;
 	}
 
-	if (hdd_cm_is_vdev_associated(adapter))
+	if (hdd_adapter_is_connected_sta(adapter))
 		/* Add beacon filter */
 		if (hdd_add_beacon_filter(adapter)) {
 			hdd_err("Beacon filter addition failed");
@@ -330,17 +329,17 @@ static int __wlan_hdd_cfg80211_bcn_rcv_op(struct wiphy *wiphy,
 		return -EINVAL;
 	}
 
-	if (!hdd_cm_is_vdev_associated(adapter)) {
+	if (!hdd_conn_is_connected(WLAN_HDD_GET_STATION_CTX_PTR(adapter))) {
 		hdd_err("STA not in connected state");
 		return -EINVAL;
 	}
 
-	vdev = hdd_objmgr_get_vdev_by_user(adapter, WLAN_OSIF_SCAN_ID);
+	vdev = hdd_objmgr_get_vdev(adapter);
 	if (!vdev)
 		return -EINVAL;
 
 	scan_req_status = ucfg_scan_get_pdev_status(wlan_vdev_get_pdev(vdev));
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_OSIF_SCAN_ID);
+	wlan_objmgr_vdev_release_ref(vdev, WLAN_OSIF_ID);
 
 	if (scan_req_status != SCAN_NOT_IN_PROGRESS) {
 		hdd_debug("Scan in progress: %d, bcn rpt start OP not allowed",
@@ -351,8 +350,7 @@ static int __wlan_hdd_cfg80211_bcn_rcv_op(struct wiphy *wiphy,
 	errno =
 	   wlan_cfg80211_nla_parse(tb,
 				   QCA_WLAN_VENDOR_ATTR_BEACON_REPORTING_MAX,
-				   data,
-				   data_len, beacon_reporting_params_policy);
+				   data, data_len, beacon_reporting_params);
 	if (errno) {
 		hdd_err("Failed to parse the beacon reporting params %d",
 			errno);

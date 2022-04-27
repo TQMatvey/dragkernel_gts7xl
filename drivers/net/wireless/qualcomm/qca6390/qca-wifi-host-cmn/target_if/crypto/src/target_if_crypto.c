@@ -127,6 +127,26 @@ static inline void wlan_crypto_set_wapi_key(struct wlan_objmgr_vdev *vdev,
 }
 #endif /* FEATURE_WLAN_WAPI */
 
+#ifdef BIG_ENDIAN_HOST
+static void wlan_crypto_endianness_conversion(uint8_t *dest, uint8_t *src,
+					      uint32_t keylen)
+{
+	int8_t i;
+
+	for (i = 0; i < roundup(keylen, sizeof(uint32_t)) / 4; i++) {
+		*dest = le32_to_cpu(*src);
+		dest++;
+		src++;
+	}
+}
+#else
+static void wlan_crypto_endianness_conversion(uint8_t *dest, uint8_t *src,
+					      uint32_t keylen)
+{
+	qdf_mem_copy(dest, src, keylen);
+}
+#endif
+
 QDF_STATUS target_if_crypto_set_key(struct wlan_objmgr_vdev *vdev,
 				    struct wlan_crypto_key *req,
 				    enum wlan_crypto_key_type key_type)
@@ -214,11 +234,13 @@ QDF_STATUS target_if_crypto_set_key(struct wlan_objmgr_vdev *vdev,
 		break;
 	}
 
-	qdf_mem_copy(&params.key_data[0], &req->keyval[0], req->keylen);
+	wlan_crypto_endianness_conversion(&params.key_data[0],
+					  &req->keyval[0],
+					  req->keylen);
 	params.key_len = req->keylen;
 
 	/* Set PN check & security type in data path */
-	qdf_mem_copy(&pn[0], &params.key_rsc_ctr, sizeof(uint64_t));
+	qdf_mem_copy(&pn[0], &params.key_rsc_ctr, sizeof(pn));
 	cdp_set_pn_check(soc, vdev->vdev_objmgr.vdev_id, req->macaddr,
 			 sec_type, pn);
 

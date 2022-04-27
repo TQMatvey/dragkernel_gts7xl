@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -126,10 +126,6 @@ struct sap_context {
 	uint32_t chan_freq;
 	uint32_t sec_ch_freq;
 
-#ifdef DCS_INTERFERENCE_DETECTION
-	qdf_freq_t dcs_ch_freq;
-#endif
-
 	/* Include the SME(CSR) sessionId here */
 	uint8_t sessionId;
 
@@ -162,9 +158,9 @@ struct sap_context {
 	/* Mac filtering settings */
 	eSapMacAddrACL eSapMacAddrAclMode;
 	struct qdf_mac_addr acceptMacList[MAX_ACL_MAC_ADDRESS];
-	uint16_t nAcceptMac;
+	uint8_t nAcceptMac;
 	struct qdf_mac_addr denyMacList[MAX_ACL_MAC_ADDRESS];
-	uint16_t nDenyMac;
+	uint8_t nDenyMac;
 
 	void *user_context;
 
@@ -221,7 +217,7 @@ struct sap_context {
 	bool vendor_acs_dfs_lte_enabled;
 	uint8_t dfs_vendor_channel;
 	uint8_t dfs_vendor_chan_bw;
-	qdf_freq_t freq_before_pre_cac;
+	uint8_t chan_before_pre_cac;
 	uint16_t beacon_tx_rate;
 	enum sap_acs_dfs_mode dfs_mode;
 	wlan_scan_requester req_id;
@@ -230,7 +226,6 @@ struct sap_context {
 	bool is_chan_change_inprogress;
 	qdf_list_t owe_pending_assoc_ind_list;
 	uint32_t freq_before_ch_switch;
-	qdf_freq_t candidate_freq;
 };
 
 /*----------------------------------------------------------------------------
@@ -320,22 +315,22 @@ QDF_STATUS
 sap_is_peer_mac_allowed(struct sap_context *sap_ctx, uint8_t *peerMac);
 
 void
-sap_sort_mac_list(struct qdf_mac_addr *macList, uint16_t size);
+sap_sort_mac_list(struct qdf_mac_addr *macList, uint8_t size);
 
 void
-sap_add_mac_to_acl(struct qdf_mac_addr *macList, uint16_t *size,
-		   uint8_t *peerMac);
+sap_add_mac_to_acl(struct qdf_mac_addr *macList, uint8_t *size,
+	       uint8_t *peerMac);
 
 void
-sap_remove_mac_from_acl(struct qdf_mac_addr *macList, uint16_t *size,
-			uint16_t index);
+sap_remove_mac_from_acl(struct qdf_mac_addr *macList, uint8_t *size,
+		    uint8_t index);
 
 void
-sap_print_acl(struct qdf_mac_addr *macList, uint16_t size);
+sap_print_acl(struct qdf_mac_addr *macList, uint8_t size);
 
 bool
-sap_search_mac_list(struct qdf_mac_addr *macList, uint16_t num_mac,
-		    uint8_t *peerMac, uint16_t *index);
+sap_search_mac_list(struct qdf_mac_addr *macList, uint8_t num_mac,
+		 uint8_t *peerMac, uint8_t *index);
 
 QDF_STATUS sap_init_dfs_channel_nol_list(struct sap_context *sap_ctx);
 
@@ -441,11 +436,11 @@ void sap_scan_event_callback(struct wlan_objmgr_vdev *vdev,
  *
  * process radar indication.
  *
- * Return: frequency to which sap wishes to switch.
+ * Return: channel to which sap wishes to switch.
  */
-qdf_freq_t sap_indicate_radar(struct sap_context *sap_ctx);
+uint8_t sap_indicate_radar(struct sap_context *sap_ctx);
 #else
-static inline qdf_freq_t sap_indicate_radar(struct sap_context *sap_ctx)
+static inline uint8_t sap_indicate_radar(struct sap_context *sap_ctx)
 {
 	return 0;
 }

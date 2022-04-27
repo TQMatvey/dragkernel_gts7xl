@@ -56,11 +56,7 @@
 #define WLAN_IPA_CLIENT_MAX_IFACE           3
 #define WLAN_IPA_MAX_SYSBAM_PIPE            4
 #define WLAN_IPA_MAX_SESSION                5
-#ifdef WLAN_MAX_CLIENTS_ALLOWED
-#define WLAN_IPA_MAX_STA_COUNT              WLAN_MAX_CLIENTS_ALLOWED
-#else
 #define WLAN_IPA_MAX_STA_COUNT              41
-#endif
 
 #define WLAN_IPA_RX_PIPE                    WLAN_IPA_MAX_IFACE
 #define WLAN_IPA_ENABLE_MASK                BIT(0)
@@ -586,13 +582,6 @@ struct wlan_ipa_tx_desc {
 typedef QDF_STATUS (*wlan_ipa_softap_xmit)(qdf_nbuf_t nbuf, qdf_netdev_t dev);
 typedef void (*wlan_ipa_send_to_nw)(qdf_nbuf_t nbuf, qdf_netdev_t dev);
 
-/**
- * typedef wlan_ipa_rps_enable - Enable/disable RPS for adapter using vdev id
- * @vdev_id: vdev_id of adapter
- * @enable: Set true to enable RPS
- */
-typedef void (*wlan_ipa_rps_enable)(uint8_t vdev_id, bool enable);
-
 /* IPA private context structure definition */
 struct wlan_ipa_priv {
 	struct wlan_objmgr_pdev *pdev;
@@ -686,7 +675,7 @@ struct wlan_ipa_priv {
 	bool vdev_offload_enabled[WLAN_IPA_MAX_SESSION];
 	bool mcc_mode;
 	qdf_work_t mcc_work;
-	bool disable_intrabss_fwd[WLAN_IPA_MAX_SESSION];
+	bool ap_intrabss_fwd;
 	bool dfs_cac_block_tx;
 #ifdef FEATURE_METERING
 	struct ipa_uc_sharing_stats ipa_sharing_stats;
@@ -699,12 +688,6 @@ struct wlan_ipa_priv {
 	wlan_ipa_softap_xmit softap_xmit;
 	wlan_ipa_send_to_nw send_to_nw;
 	ipa_uc_offload_control_req ipa_tx_op;
-	ipa_intrabss_control_req ipa_intrabss_op;
-
-#ifdef IPA_LAN_RX_NAPI_SUPPORT
-	/*Callback to enable RPS for STA in STA+SAP scenario*/
-	wlan_ipa_rps_enable rps_enable;
-#endif
 
 	qdf_event_t ipa_resource_comp;
 
@@ -712,7 +695,6 @@ struct wlan_ipa_priv {
 	bool is_smmu_enabled;	/* IPA caps returned from ipa_wdi_init */
 	qdf_atomic_t stats_quota;
 	uint8_t curr_bw_level;
-	qdf_atomic_t deinit_in_prog;
 };
 
 #define WLAN_IPA_WLAN_FRAG_HEADER        sizeof(struct frag_header)

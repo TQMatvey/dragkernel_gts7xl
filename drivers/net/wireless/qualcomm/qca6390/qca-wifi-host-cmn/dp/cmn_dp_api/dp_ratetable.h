@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -18,8 +18,6 @@
 
 #ifndef _DP_RATES_H_
 #define _DP_RATES_H_
-#include <linux/types.h>
-#include <i_qdf_types.h>
 
 #define CMN_DP_ASSERT(__bool)
 
@@ -36,6 +34,7 @@ enum CMN_BW_TYPES {
 };
 
 #define NUM_SPATIAL_STREAMS 8
+#define SUPPORT_11AX 1
 #define MAX_SPATIAL_STREAMS_SUPPORTED_AT_160MHZ 4
 #define VHT_EXTRA_MCS_SUPPORT
 #define CONFIG_160MHZ_SUPPORT 1

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -33,7 +33,6 @@
 #include "sir_common.h"
 #include "sir_api.h"
 #include "sir_mac_prot_def.h"
-#include <../../core/src/wlan_cm_vdev_api.h>
 
 /* Functions for sending responses up the stack */
 
@@ -93,26 +92,6 @@ void lim_send_sme_join_reassoc_rsp(struct mac_context *mac_ctx,
 				   uint16_t prot_status_code,
 				   struct pe_session *session_entry,
 				   uint8_t vdev_id);
-
-#ifdef FEATURE_CM_ENABLE
-/**
- * lim_cm_send_connect_rsp() - Send Response to Upper Layers
- * @mac_ctx: Pointer to Global MAC structure
- * @pe_session: PE Session Info
- * @req: connect req if pe session is NULL
- * @reason: reason of failure, valid only if status is failure
- * @connect_status: Indicates the staus of the req
- * @status_code: Protocol Status Code
- *
- * Return: None
- */
-void lim_cm_send_connect_rsp(struct mac_context *mac_ctx,
-			     struct pe_session *pe_session,
-			     struct cm_vdev_join_req *req,
-			     enum wlan_cm_connect_fail_reason reason,
-			     QDF_STATUS connect_status,
-			     enum wlan_status_code status_code);
-#endif
 
 /**
  * lim_prepare_disconnect_done_ind() - Prepares the disconnect done ind message
@@ -245,6 +224,36 @@ void lim_send_sme_delts_ind(struct mac_context *mac,
 
 #ifdef FEATURE_WLAN_ESE
 void lim_send_sme_pe_ese_tsm_rsp(struct mac_context *mac, tAniGetTsmStatsRsp *pStats);
+#endif
+
+#ifdef QCA_IBSS_SUPPORT
+/*
+ * lim_send_sme_ibss_peer_ind() - API to send ibss peer ind to sme
+ * @mac_ctx: Global mac_ctx
+ * @peerMacAddr: peer mac address
+ * @staIndex: sta index
+ * @beacon: pionter to beacon
+ * @beaconLen: length of beacon buffer
+ * @msg_type: msg_type
+ * @sessionId: session id
+ *
+ *
+ * Return: none
+ */
+void lim_send_sme_ibss_peer_ind(struct mac_context *mac, tSirMacAddr peerMacAddr,
+				uint8_t *beacon,
+				uint16_t beaconLen, uint16_t msgType,
+				uint8_t sessionId);
+#else
+static inline void
+lim_send_sme_ibss_peer_ind(struct mac_context *mac,
+			   tSirMacAddr peerMacAddr,
+			   uint16_t staIndex,
+			   uint8_t *beacon,
+			   uint16_t beaconLen, uint16_t msgType,
+			   uint8_t sessionId)
+{
+}
 #endif
 
 void lim_send_sme_max_assoc_exceeded_ntf(struct mac_context *mac, tSirMacAddr peerMacAddr,

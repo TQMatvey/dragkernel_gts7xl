@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -119,28 +119,6 @@ void ol_tx_pdev_ll_pause_queue_send_all(struct ol_txrx_pdev_t *pdev)
 }
 #endif
 
-/**
- * ol_tx_comp_hw_to_qdf_status(): map ol hw to qdf status
- * @status: hw status
- *
- * Return: qdf tx rx status
- */
-static inline enum qdf_dp_tx_rx_status
-ol_tx_comp_hw_to_qdf_status(uint16_t status)
-{
-	switch (status) {
-	case HTT_TX_COMPL_IND_STAT_OK:
-		return QDF_TX_RX_STATUS_OK;
-	case HTT_TX_COMPL_IND_STAT_DISCARD:
-	case HTT_TX_COMPL_IND_STAT_DROP:
-		return QDF_TX_RX_STATUS_FW_DISCARD;
-	case HTT_TX_COMPL_IND_STAT_NO_ACK:
-		return QDF_TX_RX_STATUS_NO_ACK;
-	default:
-		return QDF_TX_RX_STATUS_DEFAULT;
-	}
-}
-
 static inline
 int ol_txrx_tx_is_raw(enum ol_tx_spec tx_spec)
 {
@@ -207,10 +185,7 @@ ol_tx_non_std(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 
 	vdev = (struct ol_txrx_vdev_t *)ol_txrx_get_vdev_from_vdev_id(vdev_id);
 
-	if (!vdev)
-		return msdu_list;
-	else
-		return ol_tx_non_std_hl(vdev, tx_spec, msdu_list);
+	return ol_tx_non_std_hl(vdev, tx_spec, msdu_list);
 }
 #else
 qdf_nbuf_t ol_tx_non_std_ll(struct ol_txrx_vdev_t *vdev,
@@ -224,10 +199,7 @@ ol_tx_non_std(struct cdp_soc_t *soc_hdl, uint8_t vdev_id,
 
 	vdev = (struct ol_txrx_vdev_t *)ol_txrx_get_vdev_from_vdev_id(vdev_id);
 
-	if (!vdev)
-		return msdu_list;
-	else
-		return ol_tx_non_std_ll(vdev, tx_spec, msdu_list);
+	return ol_tx_non_std_ll(vdev, tx_spec, msdu_list);
 }
 #endif
 

@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2011-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -30,7 +29,6 @@
 #include "sir_mac_prot_def.h"
 #include "csr_link_list.h"
 #include "wlan_scan_public_structs.h"
-#include "wlan_mlme_public_struct.h"
 
 #define CSR_INVALID_SCANRESULT_HANDLE       (NULL)
 
@@ -118,6 +116,7 @@ typedef enum {
 	eCSR_DOT11_MODE_11ac_ONLY = 0x0200,
 	/*
 	 * This is for WIFI test. It is same as eWNIAPI_MAC_PROTOCOL_ALL
+	 * except when it starts IBSS in 11B of 2.4GHz
 	 * It is for CSR internal use
 	 */
 	eCSR_DOT11_MODE_AUTO = 0x0400,
@@ -132,12 +131,16 @@ typedef enum {
  * enum eCsrRoamBssType - BSS type in CSR operations
  * @eCSR_BSS_TYPE_INFRASTRUCTURE: Infrastructure station
  * @eCSR_BSS_TYPE_INFRA_AP: SoftAP
+ * @eCSR_BSS_TYPE_IBSS: IBSS network we'll not start
+ * @eCSR_BSS_TYPE_START_IBSS: IBSS network we'll start if no partners found
  * @eCSR_BSS_TYPE_NDI: NAN datapath interface
- * @eCSR_BSS_TYPE_ANY: any BSS type
+ * @eCSR_BSS_TYPE_ANY: any BSS type (IBSS or Infrastructure)
  */
 typedef enum {
 	eCSR_BSS_TYPE_INFRASTRUCTURE,
 	eCSR_BSS_TYPE_INFRA_AP,
+	eCSR_BSS_TYPE_IBSS,
+	eCSR_BSS_TYPE_START_IBSS,
 	eCSR_BSS_TYPE_NDI,
 	eCSR_BSS_TYPE_ANY,
 } eCsrRoamBssType;
@@ -204,6 +207,7 @@ typedef enum {
 
 typedef struct tagCsrSSIDInfo {
 	tSirMacSSid SSID;
+	bool handoffPermitted;
 	tHiddenssId ssidHidden;
 } tCsrSSIDInfo;
 
@@ -273,7 +277,7 @@ typedef struct sCsrChnPower_ {
 
 typedef struct tagCsr11dinfo {
 	sCsrChannel Channels;
-	uint8_t countryCode[REG_ALPHA2_LEN + 1];
+	uint8_t countryCode[CFG_COUNTRY_CODE_LEN + 1];
 	/* max power channel list */
 	sCsrChnPower ChnPower[CFG_VALID_CHANNEL_LIST_LEN];
 } tCsr11dinfo;
@@ -317,12 +321,16 @@ typedef enum {
 	 * to struct mic_failure_ind
 	 */
 	eCSR_ROAM_MIC_ERROR_IND,
+	/* IBSS indications. */
+	eCSR_ROAM_IBSS_IND,
 	/*
-	 * Update the connection status network is active etc.
+	 * Update the connection status, useful for IBSS: new peer added,
+	 * network is active etc.
 	 */
 	eCSR_ROAM_CONNECT_STATUS_UPDATE,
 	eCSR_ROAM_GEN_INFO,
 	eCSR_ROAM_SET_KEY_COMPLETE,
+	eCSR_ROAM_IBSS_LEAVE,   /* IBSS indications. */
 	/* BSS in SoftAP mode status indication */
 	eCSR_ROAM_INFRA_IND,
 	eCSR_ROAM_WPS_PBC_PROBE_REQ_IND,
@@ -356,6 +364,8 @@ typedef enum {
 	eCSR_ROAM_UNPROT_MGMT_FRAME_IND,
 #endif
 
+	eCSR_ROAM_IBSS_PEER_INFO_COMPLETE,
+
 #ifdef FEATURE_WLAN_ESE
 	eCSR_ROAM_TSM_IE_IND,
 	eCSR_ROAM_CCKM_PREAUTH_NOTIFY,
@@ -379,6 +389,8 @@ typedef enum {
 	eCSR_ROAM_CHANNEL_COMPLETE_IND,
 	eCSR_ROAM_CAC_COMPLETE_IND,
 	eCSR_ROAM_SAE_COMPUTE,
+	/* LFR3 Roam sync complete */
+	eCSR_ROAM_SYNCH_COMPLETE,
 	eCSR_ROAM_FIPS_PMK_REQUEST,
 } eRoamCmdStatus;
 
@@ -399,6 +411,39 @@ typedef enum {
 	eCSR_ROAM_RESULT_DISASSOC_IND,
 	eCSR_ROAM_RESULT_DEAUTH_IND,
 	eCSR_ROAM_RESULT_CAP_CHANGED,
+	/*
+	 * This means we starts an IBSS struct csr_roam_info's
+	 * bss_desc may pass back
+	 */
+	eCSR_ROAM_RESULT_IBSS_STARTED,
+	eCSR_ROAM_RESULT_IBSS_START_FAILED,
+	eCSR_ROAM_RESULT_IBSS_JOIN_SUCCESS,
+	eCSR_ROAM_RESULT_IBSS_JOIN_FAILED,
+	eCSR_ROAM_RESULT_IBSS_CONNECT,
+	eCSR_ROAM_RESULT_IBSS_INACTIVE,
+	/*
+	 * If roamStatus is eCSR_ROAM_ASSOCIATION_COMPLETION struct
+	 * csr_roam_info's bss_desc may pass back and the peer's MAC
+	 * address in peerMacOrBssid. If roamStatus is
+	 * eCSR_ROAM_IBSS_IND, the peer's MAC address in
+	 * peerMacOrBssid and a beacon frame of the IBSS in pbFrames
+	 */
+	eCSR_ROAM_RESULT_IBSS_NEW_PEER,
+	/*
+	 * Peer departed from IBSS, Callback may get a pointer tSmeIbssPeerInd
+	 * in pIbssPeerInd
+	 */
+	eCSR_ROAM_RESULT_IBSS_PEER_DEPARTED,
+	/*
+	 * Coalescing in the IBSS network (joined an IBSS network)
+	 * Callback pass a BSSID in peerMacOrBssid
+	 */
+	eCSR_ROAM_RESULT_IBSS_COALESCED,
+	/*
+	 * If roamStatus is eCSR_ROAM_ROAMING_START, callback may get a pointer
+	 * to tCsrConnectedProfile used to connect.
+	 */
+	eCSR_ROAM_RESULT_IBSS_STOP,
 	eCSR_ROAM_RESULT_LOSTLINK,
 	eCSR_ROAM_RESULT_MIC_ERROR_UNICAST,
 	eCSR_ROAM_RESULT_MIC_ERROR_GROUP,
@@ -436,6 +481,9 @@ typedef enum {
 	eCSR_ROAM_RESULT_TDLS_SHOULD_TEARDOWN,
 	eCSR_ROAM_RESULT_TDLS_SHOULD_PEER_DISCONNECTED,
 	eCSR_ROAM_RESULT_TDLS_CONNECTION_TRACKER_NOTIFICATION,
+
+	eCSR_ROAM_RESULT_IBSS_PEER_INFO_SUCCESS,
+	eCSR_ROAM_RESULT_IBSS_PEER_INFO_FAILED,
 	eCSR_ROAM_RESULT_DFS_RADAR_FOUND_IND,
 	eCSR_ROAM_RESULT_CHANNEL_CHANGE_SUCCESS,
 	eCSR_ROAM_RESULT_CHANNEL_CHANGE_FAILURE,
@@ -461,27 +509,26 @@ typedef enum {
 } eCsrRoamResult;
 
 typedef enum {
-#ifndef FEATURE_CM_ENABLE
 	eCSR_DISCONNECT_REASON_UNSPECIFIED = 0,
 	eCSR_DISCONNECT_REASON_MIC_ERROR,
 	eCSR_DISCONNECT_REASON_DISASSOC,
 	eCSR_DISCONNECT_REASON_DEAUTH,
 	eCSR_DISCONNECT_REASON_HANDOFF,
+	eCSR_DISCONNECT_REASON_IBSS_LEAVE,
 	eCSR_DISCONNECT_REASON_STA_HAS_LEFT,
-#endif
-	eCSR_DISCONNECT_REASON_NDI_DELETE = 6,
-#ifndef FEATURE_CM_ENABLE
+	eCSR_DISCONNECT_REASON_NDI_DELETE,
 	eCSR_DISCONNECT_REASON_ROAM_HO_FAIL,
-#endif
 } eCsrRoamDisconnectReason;
 
 typedef enum {
-	/* Not associated in Infra or participating in an Ad-hoc */
+	/* Not associated in Infra or participating in an IBSS/Ad-hoc */
 	eCSR_ASSOC_STATE_TYPE_NOT_CONNECTED,
-#ifndef FEATURE_CM_ENABLE
 	/* Associated in an Infrastructure network. */
 	eCSR_ASSOC_STATE_TYPE_INFRA_ASSOCIATED,
-#endif
+	/* Participating in IBSS network though disconnection */
+	eCSR_ASSOC_STATE_TYPE_IBSS_DISCONNECTED,
+	/* Participating in IBSS network with partner stations also present */
+	eCSR_ASSOC_STATE_TYPE_IBSS_CONNECTED,
 	/* Participating in WDS network in AP/STA mode but not connected yet */
 	eCSR_ASSOC_STATE_TYPE_WDS_DISCONNECTED,
 	/* Participating in a WDS network and connected peer to peer */
@@ -490,14 +537,13 @@ typedef enum {
 	eCSR_ASSOC_STATE_TYPE_INFRA_DISCONNECTED,
 	/* Participating in a Infra network and connected to a peer */
 	eCSR_ASSOC_STATE_TYPE_INFRA_CONNECTED,
+	/* Disconnecting with AP or stop connecting process */
+	eCSR_ASSOC_STATE_TYPE_INFRA_DISCONNECTING,
 	/* NAN Data interface not started */
 	eCSR_CONNECT_STATE_TYPE_NDI_NOT_STARTED,
 	/* NAN Data interface started */
 	eCSR_CONNECT_STATE_TYPE_NDI_STARTED,
-#ifndef FEATURE_CM_ENABLE
-	/* Disconnecting with AP or stop connecting process */
-	eCSR_ASSOC_STATE_TYPE_INFRA_DISCONNECTING,
-#endif
+
 } eCsrConnectState;
 
 /*
@@ -507,12 +553,14 @@ typedef enum {
 typedef enum eCSR_MEDIUM_ACCESS {
 	eCSR_MEDIUM_ACCESS_AUTO = 0,
 	eCSR_MEDIUM_ACCESS_DCF,
-	eCSR_MEDIUM_ACCESS_11e_eDCF,
-	eCSR_MEDIUM_ACCESS_11e_HCF,
+	eCSR_MEDIUM_ACCESS_eDCF,
+	eCSR_MEDIUM_ACCESS_HCF,
 
 	eCSR_MEDIUM_ACCESS_WMM_eDCF_802dot1p,
 	eCSR_MEDIUM_ACCESS_WMM_eDCF_DSCP,
 	eCSR_MEDIUM_ACCESS_WMM_eDCF_NoClassify,
+	eCSR_MEDIUM_ACCESS_11e_eDCF = eCSR_MEDIUM_ACCESS_eDCF,
+	eCSR_MEDIUM_ACCESS_11e_HCF = eCSR_MEDIUM_ACCESS_HCF,
 } eCsrMediaAccessType;
 
 typedef enum {
@@ -554,8 +602,8 @@ typedef enum {
 
 } eCsrWEPStaticKeyID;
 
-/* Two extra key indicies are used for the IGTK, two for BIGTK */
-#define CSR_MAX_NUM_KEY     (eCSR_SECURITY_WEP_STATIC_KEY_ID_MAX + 2 + 1 + 2)
+/* Two extra key indicies are used for the IGTK (which is used by BIP) */
+#define CSR_MAX_NUM_KEY     (eCSR_SECURITY_WEP_STATIC_KEY_ID_MAX + 2 + 1)
 
 typedef enum {
 	/*
@@ -632,6 +680,8 @@ typedef struct tagCsrRoamModifyProfileFields {
 	 * SME-QoS might need to modify this field
 	 */
 	uint8_t uapsd_mask;
+	/* HDD might ask to modify this field */
+	uint16_t listen_interval;
 } tCsrRoamModifyProfileFields;
 
 struct csr_roam_profile {
@@ -659,6 +709,7 @@ struct csr_roam_profile {
 	uint8_t MFPRequired;
 	uint8_t MFPCapable;
 #endif
+	tAniEdType mgmt_encryption_type;
 	tCsrKeys Keys;
 	tCsrChannelInfo ChannelInfo;
 	uint32_t op_freq;
@@ -693,7 +744,7 @@ struct csr_roam_profile {
 	 */
 	uint8_t *pAddIEAssoc;
 	/* it is ignored if [0] is 0. */
-	uint8_t countryCode[REG_ALPHA2_LEN + 1];
+	uint8_t countryCode[CFG_COUNTRY_CODE_LEN];
 	/* WPS Association if true => auth and ecryption should be ignored */
 	bool bWPSAssociation;
 	bool bOSENAssociation;
@@ -717,26 +768,46 @@ struct csr_roam_profile {
 	tSirMacRateSet  extended_rates;
 	struct qdf_mac_addr bssid_hint;
 	bool force_24ghz_in_ht20;
-	bool require_h2e;
 	uint32_t cac_duration_ms;
 	uint32_t dfs_regdomain;
-#ifndef FEATURE_CM_ENABLE
 #ifdef WLAN_FEATURE_FILS_SK
-	struct wlan_fils_connection_info *fils_con_info;
-#endif
+	uint8_t *hlp_ie;
+	uint32_t hlp_ie_len;
+	struct cds_fils_connection_info *fils_con_info;
 #endif
 	bool force_rsne_override;
 };
 
+#ifdef FEATURE_WLAN_MCC_TO_SCC_SWITCH
+typedef struct tagCsrRoamHTProfile {
+	uint8_t phymode;
+	uint8_t htCapability;
+	uint8_t htSupportedChannelWidthSet;
+	uint8_t htRecommendedTxWidthSet;
+	ePhyChanBondState htSecondaryChannelOffset;
+	uint8_t vhtCapability;
+	uint8_t apCenterChan;
+	uint8_t apChanWidth;
+} tCsrRoamHTProfile;
+#endif
+
 typedef struct tagCsrRoamConnectedProfile {
 	tSirMacSSid SSID;
+	bool handoffPermitted;
+	bool ssidHidden;
 	uint32_t op_freq;
 	struct qdf_mac_addr bssid;
 	uint16_t beaconInterval;
 	eCsrRoamBssType BSSType;
 	enum csr_akm_type AuthType;
+	tCsrAuthList AuthInfo;
+	tCsrAuthList akm_list;
 	eCsrEncryptionType EncryptionType;
+	tCsrEncryptionList EncryptionInfo;
 	eCsrEncryptionType mcEncryptionType;
+	tCsrEncryptionList mcEncryptionInfo;
+	/* group management cipher suite used for 11w */
+	tAniEdType mgmt_encryption_type;
 	uint8_t country_code[WNI_CFG_COUNTRY_CODE_LEN];
 	uint32_t vht_channel_width;
 	tCsrKeys Keys;
@@ -749,22 +820,102 @@ typedef struct tagCsrRoamConnectedProfile {
 	uint8_t acm_mask;
 	tCsrRoamModifyProfileFields modifyProfileFields;
 	bool qosConnection;     /* A connection is QoS enabled */
+	uint32_t nAddIEAssocLength;
+	/*
+	 * If not null,it's IE byte stream for additional IE,
+	 * which can be WSC IE and/or P2P IE
+	 */
+	uint8_t *pAddIEAssoc;
+	struct bss_description *bss_desc;
 	bool qap;               /* AP supports QoS */
+	struct mobility_domain_info mdid;
+#ifdef FEATURE_WLAN_ESE
+	tCsrEseCckmInfo eseCckmInfo;
+	bool isESEAssoc;
+#endif
 	uint32_t dot11Mode;
-#ifndef FEATURE_CM_ENABLE
 	uint8_t proxy_arp_service;
+#ifdef FEATURE_WLAN_MCC_TO_SCC_SWITCH
+	tCsrRoamHTProfile ht_profile;
+#endif
+#ifdef WLAN_FEATURE_11W
+	/* Management Frame Protection */
+	bool MFPEnabled;
+	uint8_t MFPRequired;
+	uint8_t MFPCapable;
 #endif
 } tCsrRoamConnectedProfile;
+
+/**
+ * enum sta_roam_policy_dfs_mode - state of DFS mode for STA ROME policy
+ * @CSR_STA_ROAM_POLICY_NONE: DFS mode attribute is not valid
+ * @CSR_STA_ROAM_POLICY_DFS_ENABLED:  DFS mode is enabled
+ * @CSR_STA_ROAM_POLICY_DFS_DISABLED: DFS mode is disabled
+ * @CSR_STA_ROAM_POLICY_DFS_DEPRIORITIZE: Deprioritize DFS channels in scanning
+ */
+enum sta_roam_policy_dfs_mode {
+	CSR_STA_ROAM_POLICY_NONE,
+	CSR_STA_ROAM_POLICY_DFS_ENABLED,
+	CSR_STA_ROAM_POLICY_DFS_DISABLED,
+	CSR_STA_ROAM_POLICY_DFS_DEPRIORITIZE
+};
+
+/**
+ * struct csr_sta_roam_policy_params - sta roam policy params for station
+ * @dfs_mode: tell is DFS channels needs to be skipped while scanning
+ * @skip_unsafe_channels: tells if unsafe channels needs to be skip in scanning
+ * @sap_operating_band: Opearting band for SAP
+ */
+struct csr_sta_roam_policy_params {
+	enum sta_roam_policy_dfs_mode dfs_mode;
+	bool skip_unsafe_channels;
+	uint8_t sap_operating_band;
+};
+
+/**
+ * struct csr_neighbor_report_offload_params - neighbor report offload params
+ * @params_bitmask: bitmask to specify which of the below are enabled
+ * @time_offset: time offset after 11k offload command to trigger a neighbor
+ *		report request (in seconds)
+ * @low_rssi_offset: Offset from rssi threshold to trigger neighbor
+ *	report request (in dBm)
+ * @bmiss_count_trigger: Number of beacon miss events to trigger neighbor
+ *		report request
+ * @per_threshold_offset: offset from PER threshold to trigger neighbor
+ *		report request (in %)
+ * @neighbor_report_cache_timeout: timeout after which new trigger can enable
+ *		sending of a neighbor report request (in seconds)
+ * @max_neighbor_report_req_cap: max number of neighbor report requests that
+ *		can be sent to the peer in the current session
+ */
+struct csr_neighbor_report_offload_params {
+	uint8_t params_bitmask;
+	uint32_t time_offset;
+	uint32_t low_rssi_offset;
+	uint32_t bmiss_count_trigger;
+	uint32_t per_threshold_offset;
+	uint32_t neighbor_report_cache_timeout;
+	uint32_t max_neighbor_report_req_cap;
+};
 
 struct csr_config_params {
 	/* keep this uint32_t. This gets converted to ePhyChannelBondState */
 	uint32_t channelBondingMode24GHz;
+	uint8_t nud_fail_behaviour;
 	uint32_t channelBondingMode5GHz;
 	eCsrPhyMode phyMode;
 	uint32_t HeartbeatThresh50;
 	eCsrRoamWmmUserModeType WMMSupportMode;
 	bool Is11eSupportEnabled;
 	bool ProprietaryRatesEnabled;
+	uint32_t ad_hoc_ch_freq_5g;
+	uint32_t ad_hoc_ch_freq_2g;
+	/*
+	 * this number minus one is the number of times a scan doesn't find it
+	 * before it is removed
+	 */
+	/* to set the RSSI difference for each category */
+	uint8_t bCatRssiOffset;
 	/* to set MCC Enable/Disable mode */
 	uint8_t fEnableMCCMode;
 	bool mcc_rts_cts_prot_enable;
@@ -777,17 +928,35 @@ struct csr_config_params {
 	 */
 	uint8_t fAllowMCCGODiffBI;
 	tCsr11dinfo Csr11dinfo;
+	/* stats request frequency from PE while in full power */
+	uint32_t statsReqPeriodicity;
+	/* stats request frequency from PE while in power save */
+	uint32_t statsReqPeriodicityInPS;
+#ifdef FEATURE_WLAN_ESE
+	uint8_t isEseIniFeatureEnabled;
+#endif
+	uint8_t isFastRoamIniFeatureEnabled;
+	struct mawc_params csr_mawc_config;
 	/*
 	 * Customer wants to optimize the scan time. Avoiding scans(passive)
 	 * on DFS channels while swipping through both bands can save some time
 	 * (apprx 1.3 sec)
 	 */
 	uint8_t fEnableDFSChnlScan;
+	/*
+	 * To enable/disable scanning 2.4Ghz channels twice on a single scan
+	 * request from HDD
+	 */
+	bool fScanTwice;
+	bool vendor_vht_sap;
 	bool send_smps_action;
 
+	uint8_t disable_high_ht_mcs_2x2;
+	uint8_t isCoalesingInIBSSAllowed;
 #ifdef FEATURE_WLAN_MCC_TO_SCC_SWITCH
 	uint8_t cc_switch_mode;
 #endif
+	uint8_t allowDFSChannelRoam;
 	bool obssEnabled;
 	uint8_t conc_custom_rule1;
 	uint8_t conc_custom_rule2;
@@ -798,8 +967,23 @@ struct csr_config_params {
 #ifdef FEATURE_AP_MCC_CH_AVOIDANCE
 	bool sap_channel_avoidance;
 #endif /* FEATURE_AP_MCC_CH_AVOIDANCE */
+	uint32_t dual_mac_feature_disable;
+	uint32_t sta_sap_scc_on_dfs_chan;
+	uint32_t roam_dense_rssi_thresh_offset;
+	uint32_t roam_dense_min_aps;
+	int8_t roam_bg_scan_bad_rssi_thresh;
+	uint8_t roam_bad_rssi_thresh_offset_2g;
+	uint32_t roam_data_rssi_threshold_triggers;
+	int32_t roam_data_rssi_threshold;
+	uint32_t rx_data_inactivity_time;
+	struct csr_sta_roam_policy_params sta_roam_policy_params;
+	bool enable_bcast_probe_rsp;
+	bool is_fils_enabled;
 	enum force_1x1_type is_force_1x1;
+	uint8_t oce_feature_bitmap;
+	uint32_t offload_11k_enable_bitmask;
 	bool wep_tkip_in_he;
+	struct csr_neighbor_report_offload_params neighbor_report_offload;
 };
 
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
@@ -834,6 +1018,10 @@ struct csr_roam_info {
 	bool fReassocReq;       /* set to true if for re-association */
 	bool fReassocRsp;       /* set to true if for re-association */
 	struct qdf_mac_addr bssid;
+	/*
+	 * Only valid in IBSS. this is the peers MAC address for
+	 * eCSR_ROAM_RESULT_IBSS_NEW_PEER or PEER_DEPARTED
+	 */
 	struct qdf_mac_addr peerMac;
 	tSirResultCodes status_code;
 	/* this'd be our own defined or sent from otherBSS(per 802.11spec) */
@@ -875,6 +1063,8 @@ struct csr_roam_info {
 	bool tdls_chan_swit_prohibited; /* per ExtCap in Assoc/Reassoc resp */
 #endif
 	/* Required for indicating the frames to upper layer */
+	uint32_t beaconLength;
+	uint8_t *beaconPtr;
 	uint32_t assocReqLength;
 	uint8_t *assocReqPtr;
 	int8_t rxRssi;
@@ -924,7 +1114,6 @@ struct csr_roam_info {
 	enum sir_sme_phy_mode mode;
 	uint8_t max_supp_idx;
 	uint8_t max_ext_idx;
-	uint8_t max_real_mcs_idx;
 	uint8_t max_mcs_idx;
 	uint8_t rx_mcs_map;
 	uint8_t tx_mcs_map;
@@ -935,8 +1124,6 @@ struct csr_roam_info {
 	uint16_t fils_seq_num;
 	struct fils_join_rsp_params *fils_join_rsp;
 #endif
-	uint32_t ext_cap;
-	uint8_t supported_band;
 	int rssi;
 	int tx_rate;
 	int rx_rate;
@@ -948,7 +1135,7 @@ struct csr_roam_info {
 #endif
 	struct assoc_ind *owe_pending_assoc_ind;
 	uint16_t roam_reason;
-	struct element_info *disconnect_ies;
+	struct wlan_ies *disconnect_ies;
 };
 
 typedef struct sSirSmeAssocIndToUpperLayerCnf {
@@ -977,13 +1164,10 @@ typedef struct sSirSmeAssocIndToUpperLayerCnf {
 	uint8_t max_supp_idx;
 	uint8_t max_ext_idx;
 	uint8_t max_mcs_idx;
-	uint8_t max_real_mcs_idx;
 	uint8_t rx_mcs_map;
 	uint8_t tx_mcs_map;
 	/* Extended capabilities of STA */
 	uint8_t              ecsa_capable;
-	uint32_t ext_cap;
-	uint8_t supported_band;
 
 	uint32_t ies_len;
 	uint8_t *ies;
@@ -1107,6 +1291,19 @@ struct csr_del_sta_params {
 	uint8_t subtype;
 };
 
+/**
+ * struct wep_update_default_key_idx: wep default key index structure
+ * @session_id: session ID for the connection session
+ * @default_idx: default key index for wep
+ *
+ * structure includes sesssion id for connection and default key
+ * index used for wep
+ */
+struct wep_update_default_key_idx {
+	uint8_t session_id;
+	uint8_t default_idx;
+};
+
 typedef QDF_STATUS (*csr_roam_complete_cb)(struct wlan_objmgr_psoc *psoc,
 					   uint8_t session_id,
 					   struct csr_roam_info *param,
@@ -1117,6 +1314,12 @@ typedef QDF_STATUS (*csr_session_open_cb)(uint8_t session_id,
 					  QDF_STATUS qdf_status);
 typedef QDF_STATUS (*csr_session_close_cb)(uint8_t session_id);
 
+#define CSR_IS_START_IBSS(pProfile) (eCSR_BSS_TYPE_START_IBSS == \
+				     (pProfile)->BSSType)
+#define CSR_IS_JOIN_TO_IBSS(pProfile) (eCSR_BSS_TYPE_IBSS == \
+				       (pProfile)->BSSType)
+#define CSR_IS_IBSS(pProfile) (CSR_IS_START_IBSS(pProfile) || \
+			       CSR_IS_JOIN_TO_IBSS(pProfile))
 #define CSR_IS_INFRASTRUCTURE(pProfile) (eCSR_BSS_TYPE_INFRASTRUCTURE == \
 					 (pProfile)->BSSType)
 #define CSR_IS_ANY_BSS_TYPE(pProfile) (eCSR_BSS_TYPE_ANY == \
@@ -1136,7 +1339,6 @@ typedef QDF_STATUS (*csr_session_close_cb)(uint8_t session_id);
 #define CSR_IS_CONN_NDI(profile)  (false)
 #endif
 
-#ifndef FEATURE_CM_ENABLE
 #ifdef WLAN_FEATURE_SAE
 #define CSR_IS_AUTH_TYPE_SAE(auth_type) \
 	(eCSR_AUTH_TYPE_SAE == auth_type)
@@ -1178,10 +1380,6 @@ typedef QDF_STATUS (*csr_session_close_cb)(uint8_t session_id);
 
 #define CSR_IS_FW_FT_FILS_SUPPORTED(fw_akm_bitmap) \
 	(((fw_akm_bitmap) & (1 << AKM_FT_FILS))  ? true : false)
-
-#define CSR_IS_FW_SUITEB_ROAM_SUPPORTED(fw_akm_bitmap) \
-	(((fw_akm_bitmap) & (1 << AKM_SUITEB))  ? true : false)
-#endif
 
 QDF_STATUS csr_set_channels(struct mac_context *mac,
 			    struct csr_config_params *pParam);
@@ -1304,70 +1502,34 @@ void csr_clear_channel_status(struct mac_context *mac);
 QDF_STATUS csr_update_owe_info(struct mac_context *mac,
 			       struct assoc_ind *assoc_ind);
 
+/**
+ * csr_send_roam_offload_init_msg() - Send roam enable/disable flag to fw
+ * @mac: mac context
+ * @vdev_id: vdev id
+ * @enable: enable/disable roam flag
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+csr_send_roam_offload_init_msg(struct mac_context *mac, uint32_t vdev_id,
+			       bool enable);
+
 typedef void (*csr_ani_callback)(int8_t *ani, void *context);
 
-/*
- * csr_convert_to_reg_phy_mode() - CSR API to convert CSR phymode into
- * regulatory phymode
- * @csr_phy_mode: csr phymode with type eCsrPhyMode
- * @freq: current operating frequency
- *
- * This API is used to convert a phymode from CSR to a phymode from regulatory
- *
- * Return: regulatory phymode that is comparable to input
- */
-enum reg_phymode csr_convert_to_reg_phy_mode(eCsrPhyMode csr_phy_mode,
-				       qdf_freq_t freq);
-
-/*
- * csr_convert_from_reg_phy_mode() - CSR API to convert regulatory phymode into
- * CSR phymode
- * @reg_phymode: regulatory phymode
- *
- * This API is used to convert a regulatory phymode to a CSR phymode
- *
- * Return: eCSR phymode that is comparable to input
- */
-eCsrPhyMode csr_convert_from_reg_phy_mode(enum reg_phymode phymode);
-
-/*
- * csr_update_beacon() - CSR API to update beacon template
- * @mac: mac context
- *
- * This API is used to update beacon template to FW
+#ifdef WLAN_FEATURE_11W
+/**
+ * csr_update_pmf_cap_from_connected_profile() - Update pmf cap from profile
+ * @profile: connected profile
+ * @filter: scan filter
  *
  * Return: None
  */
-void csr_update_beacon(struct mac_context *mac);
-
-/**
- * csr_fill_enc_type() - converts crypto cipher set to csr specific cipher type
- * @cipher_type: output csr cipher type
- * @ cipherset:input cipher set
- *
- * Return: None
- */
-void csr_fill_enc_type(eCsrEncryptionType *cipher_type, uint32_t cipherset);
-
-/**
- * csr_fill_auth_type() - auth mode set to csr specific auth type
- * @auth_type: output csr auth type
- * @ authmodeset: authmode set
- * @akm: akm
- * @ucastcipherset: ucastcipherset
- *
- * Return: None
- */
-void csr_fill_auth_type(enum csr_akm_type *auth_type,
-			uint32_t authmodeset, uint32_t akm,
-			uint32_t ucastcipherset);
-
-/**
- * csr_phy_mode_to_dot11mode() - converts phy mode to dot11 mode
- * @phy_mode: wlan phy mode
- *
- * Return: csr_cfgdot11mode
- */
-enum csr_cfgdot11mode csr_phy_mode_to_dot11mode(enum wlan_phymode phy_mode);
-
+void
+csr_update_pmf_cap_from_connected_profile(tCsrRoamConnectedProfile *profile,
+					  struct scan_filter *filter);
+#else
+void
+csr_update_pmf_cap_from_connected_profile(tCsrRoamConnectedProfile *profile,
+					  struct scan_filter *filter);
+#endif
 #endif

@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2013-2016, 2018, 2019-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2016, 2018, 2019-2020 The Linux Foundation.
+ * All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -61,6 +62,10 @@ typedef struct sFTSMEContext {
 	/* Time to trigger reassoc once pre-auth is successful */
 	qdf_mc_timer_t preAuthReassocIntvlTimer;
 	bool addMDIE;
+#ifdef WLAN_FEATURE_ROAM_OFFLOAD
+	uint32_t r0kh_id_len;
+	uint8_t r0kh_id[SIR_ROAM_R0KH_ID_MAX_LEN];
+#endif
 	/* User context for the timer callback */
 	tpFTRoamCallbackUsrCtx pUsrCtx;
 } tftSMEContext, *tpftSMEContext;
@@ -89,25 +94,6 @@ void sme_get_rici_es(mac_handle_t mac_handle, uint32_t sessionId,
  * Return: QDF_STATUS
  */
 QDF_STATUS sme_check_ft_status(mac_handle_t mac_handle, uint32_t session_id);
-
-#ifdef WLAN_FEATURE_HOST_ROAM
-/**
- * sme_ft_key_ready_for_install() - API to check ft key ready for install
- * @mac_handle: MAC handle
- * @session_id: vdev identifier
- *
- * It is only applicable for LFR2.0 enabled
- *
- * Return: true when ft key is ready otherwise false
- */
-bool sme_ft_key_ready_for_install(mac_handle_t mac_handle, uint32_t session_id);
-#else
-static inline bool
-sme_ft_key_ready_for_install(mac_handle_t mac_handle, uint32_t session_id)
-{
-	return false;
-}
-#endif
 
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 /**

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -29,6 +29,15 @@
 #include "cds_reg_service.h"
 #include "wlan_objmgr_vdev_obj.h"
 
+/* This number minus 1 means the number of times a channel is scanned before
+ * a BSS is removed from cache scan result
+ */
+#define CSR_AGING_COUNT     3
+
+/* These are going against the signed RSSI (int8_t) so it is between -+127 */
+#define CSR_BEST_RSSI_VALUE         (-30)       /* RSSI >= this is in CAT4 */
+#define CSR_DEFAULT_RSSI_DB_GAP     30  /* every 30 dbm for one category */
+
 #ifdef QCA_WIFI_3_0_EMU
 #define CSR_ACTIVE_SCAN_LIST_CMD_TIMEOUT (1000*30*20)
 #else
@@ -44,28 +53,23 @@
 extern uint8_t csr_wpa_oui[][CSR_WPA_OUI_SIZE];
 bool csr_is_supported_channel(struct mac_context *mac, uint32_t chan_freq);
 
-#ifndef FEATURE_CM_ENABLE
 enum csr_scancomplete_nextcommand {
 	eCsrNextScanNothing,
 	eCsrNexteScanForSsidSuccess,
 	eCsrNexteScanForSsidFailure,
 	eCsrNextCheckAllowConc,
 };
-#endif
 
 enum csr_roamcomplete_result {
-#ifndef FEATURE_CM_ENABLE
 	eCsrJoinSuccess,
-#endif
 	eCsrJoinFailure,
 	eCsrReassocSuccess,
 	eCsrReassocFailure,
 	eCsrNothingToJoin,
 	eCsrStartBssSuccess,
 	eCsrStartBssFailure,
-#ifndef FEATURE_CM_ENABLE
+	eCsrSilentlyStopRoaming,
 	eCsrSilentlyStopRoamingSaveState,
-#endif
 	eCsrJoinFailureDueToConcurrency,
 	eCsrStopBssSuccess,
 	eCsrStopBssFailure,
@@ -73,6 +77,20 @@ enum csr_roamcomplete_result {
 
 struct tag_csrscan_result {
 	tListElem Link;
+	/* This BSS is removed when it reaches 0 or less */
+	int32_t AgingCount;
+	/* The bigger the number, the better the BSS.
+	 * This value override capValue
+	 */
+	uint32_t preferValue;
+	/* The biggger the better. This value is in use only if we have
+	 * equal preferValue
+	 */
+	uint32_t capValue;
+	/* This member must be the last in the structure because the end of
+	 * struct bss_description (inside) is an
+	 * array with nonknown size at this time
+	 */
 	/* Preferred Encryption type that matched with profile. */
 	eCsrEncryptionType ucEncryptionType;
 	eCsrEncryptionType mcEncryptionType;
@@ -116,7 +134,6 @@ struct scan_result_list {
 				     (eCSR_ENCRYPT_TYPE_WEP40 != (encType)) && \
 				       (eCSR_ENCRYPT_TYPE_WEP104 != (encType)))
 
-#ifndef FEATURE_CM_ENABLE
 #define CSR_IS_DISCONNECT_COMMAND(pCommand) ((eSmeCommandRoam == \
 		(pCommand)->command) && \
 		((eCsrForcedDisassoc == (pCommand)->u.roamCmd.roamReason) || \
@@ -125,9 +142,6 @@ struct scan_result_list {
 					(pCommand)->u.roamCmd.roamReason) || \
 					(eCsrForcedDisassocMICFailure == \
 					(pCommand)->u.roamCmd.roamReason)))
-#else
-#define CSR_IS_DISCONNECT_COMMAND(pCommand) false
-#endif
 
 enum csr_roam_state csr_roam_state_change(struct mac_context *mac,
 					  enum csr_roam_state NewRoamState,
@@ -135,11 +149,8 @@ enum csr_roam_state csr_roam_state_change(struct mac_context *mac,
 void csr_roaming_state_msg_processor(struct mac_context *mac, void *msg_buf);
 void csr_roam_joined_state_msg_processor(struct mac_context *mac,
 					 void *msg_buf);
-
-#ifndef FEATURE_CM_ENABLE
 void csr_scan_callback(struct wlan_objmgr_vdev *vdev,
 				struct scan_event *event, void *arg);
-#endif
 void csr_release_command_roam(struct mac_context *mac, tSmeCmd *pCommand);
 void csr_release_command_wm_status_change(struct mac_context *mac,
 					  tSmeCmd *pCommand);
@@ -150,8 +161,7 @@ QDF_STATUS csr_roam_save_connected_bss_desc(struct mac_context *mac,
 
 QDF_STATUS csr_roam_copy_profile(struct mac_context *mac,
 				 struct csr_roam_profile *pDstProfile,
-				 struct csr_roam_profile *pSrcProfile,
-				 uint8_t vdev_id);
+				 struct csr_roam_profile *pSrcProfile);
 QDF_STATUS csr_roam_start(struct mac_context *mac);
 void csr_roam_stop(struct mac_context *mac, uint32_t sessionId);
 
@@ -162,11 +172,9 @@ bool
 csr_scan_append_bss_description(struct mac_context *mac,
 				struct bss_description *pSirBssDescription);
 
-#ifndef FEATURE_CM_ENABLE
 QDF_STATUS csr_scan_for_ssid(struct mac_context *mac, uint32_t sessionId,
 			     struct csr_roam_profile *pProfile, uint32_t roamId,
 			     bool notify);
-#endif
 /**
  * csr_scan_abort_mac_scan() - Generic API to abort scan request
  * @mac: pointer to pmac
@@ -230,12 +238,11 @@ csr_issue_set_context_req_helper(struct mac_context *mac,
 				 bool unicast, tAniKeyDirection key_direction,
 				 uint8_t key_id, uint16_t key_length,
 				 uint8_t *key);
-/* This is temp ifdef will be removed in near future */
-#ifndef FEATURE_CM_ENABLE
+
 QDF_STATUS csr_roam_process_disassoc_deauth(struct mac_context *mac,
 						tSmeCmd *pCommand,
 					    bool fDisassoc, bool fMICFailure);
-#endif
+
 QDF_STATUS
 csr_roam_save_connected_information(struct mac_context *mac,
 				    uint32_t sessionId,
@@ -253,6 +260,8 @@ QDF_STATUS csr_roam_issue_start_bss(struct mac_context *mac, uint32_t sessionId,
 					uint32_t roamId);
 QDF_STATUS csr_roam_issue_stop_bss(struct mac_context *mac, uint32_t sessionId,
 				   enum csr_roam_substate NewSubstate);
+bool csr_is_same_profile(struct mac_context *mac, tCsrRoamConnectedProfile
+			*pProfile1, struct csr_roam_profile *pProfile2);
 bool csr_is_roam_command_waiting_for_session(struct mac_context *mac,
 					uint32_t sessionId);
 eRoamCmdStatus csr_get_roam_complete_status(struct mac_context *mac,
@@ -261,21 +270,19 @@ eRoamCmdStatus csr_get_roam_complete_status(struct mac_context *mac,
 QDF_STATUS csr_roam_issue_disassociate_cmd(struct mac_context *mac,
 					   uint32_t sessionId,
 					   eCsrRoamDisconnectReason reason,
-					   enum wlan_reason_code mac_reason);
+					   tSirMacReasonCodes mac_reason);
+QDF_STATUS csr_roam_disconnect_internal(struct mac_context *mac, uint32_t sessionId,
+					eCsrRoamDisconnectReason reason,
+					tSirMacReasonCodes mac_reason);
 /* pCommand may be NULL */
 void csr_roam_remove_duplicate_command(struct mac_context *mac, uint32_t sessionId,
 				       tSmeCmd *pCommand,
 				       enum csr_roam_reason eRoamReason);
 
-#ifndef FEATURE_CM_ENABLE
-bool csr_is_same_profile(struct mac_context *mac, tCsrRoamConnectedProfile
-			*pProfile1, struct csr_roam_profile *pProfile2,
-			uint8_t vdev_id);
 QDF_STATUS csr_send_join_req_msg(struct mac_context *mac, uint32_t sessionId,
 				 struct bss_description *pBssDescription,
 				 struct csr_roam_profile *pProfile,
 				 tDot11fBeaconIEs *pIes, uint16_t messageType);
-#endif
 QDF_STATUS csr_send_mb_disassoc_req_msg(struct mac_context *mac, uint32_t sessionId,
 					tSirMacAddr bssId, uint16_t reasonCode);
 QDF_STATUS csr_send_mb_deauth_req_msg(struct mac_context *mac, uint32_t sessionId,
@@ -287,7 +294,7 @@ QDF_STATUS csr_send_mb_deauth_cnf_msg(struct mac_context *mac,
 QDF_STATUS csr_send_assoc_cnf_msg(struct mac_context *mac,
 				  struct assoc_ind *pAssocInd,
 				  QDF_STATUS status,
-				  enum wlan_status_code mac_status_code);
+				  enum mac_status_code mac_status_code);
 QDF_STATUS csr_send_mb_start_bss_req_msg(struct mac_context *mac,
 					 uint32_t sessionId,
 					 eCsrRoamBssType bssType,
@@ -356,6 +363,8 @@ void csr_apply_channel_power_info_to_fw(struct mac_context *mac,
 					struct csr_channel *pChannelList,
 					uint8_t *countryCode);
 void csr_apply_power2_current(struct mac_context *mac);
+void csr_assign_rssi_for_category(struct mac_context *mac, int8_t bestApRssi,
+				  uint8_t catOffset);
 
 /* return a bool to indicate whether roaming completed or continue. */
 bool csr_roam_complete_roaming(struct mac_context *mac, uint32_t sessionId,
@@ -365,20 +374,21 @@ void csr_roam_completion(struct mac_context *mac, uint32_t sessionId,
 			 eCsrRoamResult roamResult, bool fSuccess);
 void csr_roam_cancel_roaming(struct mac_context *mac, uint32_t sessionId);
 void csr_apply_channel_power_info_wrapper(struct mac_context *mac);
+void csr_reset_pmkid_candidate_list(struct mac_context *mac, uint32_t sessionId);
 QDF_STATUS csr_save_to_channel_power2_g_5_g(struct mac_context *mac,
-					uint32_t tableSize,
-					struct pwr_channel_info *channelTable);
+					uint32_t tableSize, tSirMacChanInfo
+					*channelTable);
 
 /*
- * csr_prepare_vdev_delete() - CSR api to delete vdev
+ * csr_roam_vdev_delete() - CSR api to delete vdev
  * @mac_ctx: pointer to mac context
  * @vdev_id: vdev id to be deleted.
  * @cleanup: clean up vdev session on true
  *
  * Return QDF_STATUS
  */
-QDF_STATUS csr_prepare_vdev_delete(struct mac_context *mac_ctx,
-				   uint8_t vdev_id, bool cleanup);
+QDF_STATUS csr_roam_vdev_delete(struct mac_context *mac_ctx,
+				uint8_t vdev_id, bool cleanup);
 
 /*
  * csr_cleanup_vdev_session() - CSR api to cleanup vdev
@@ -400,25 +410,42 @@ enum csr_cfgdot11mode csr_find_best_phy_mode(struct mac_context *mac,
 
 /*
  * csr_copy_ssids_from_roam_params() - copy SSID from roam_params to scan filter
- * @rso_usr_cfg: rso user config
+ * @roam_params: roam params
  * @filter: scan filter
  *
  * Return void
  */
-void csr_copy_ssids_from_roam_params(struct rso_config_params *rso_usr_cfg,
+void csr_copy_ssids_from_roam_params(struct roam_ext_params *roam_params,
 				     struct scan_filter *filter);
 
 /*
- * csr_update_scan_filter_dot11mode() - update dot11mode for scan filter
- * @mac_ctx: csr auth type
+ * csr_update_connect_n_roam_cmn_filter() - update common scan filter
+ * @mac_ctx: pointer to mac context
  * @filter: scan filter
+ * @opmode: opmode
  *
  * Return void
  */
-void csr_update_scan_filter_dot11mode(struct mac_context *mac_ctx,
-				      struct scan_filter *filter);
+void csr_update_connect_n_roam_cmn_filter(struct mac_context *mac_ctx,
+					  struct scan_filter *filter,
+					  enum QDF_OPMODE opmode);
 
-#ifndef FEATURE_CM_ENABLE
+/*
+ * csr_covert_enc_type_new() - convert csr enc type to wlan enc type
+ * @enc: csr enc type
+ *
+ * Return enum wlan_enc_type
+ */
+enum wlan_enc_type csr_covert_enc_type_new(eCsrEncryptionType enc);
+
+/*
+ * csr_covert_auth_type_new() - convert csr auth type to wlan auth type
+ * @auth: csr auth type
+ *
+ * Return enum wlan_auth_type
+ */
+enum wlan_auth_type csr_covert_auth_type_new(enum csr_akm_type auth);
+
 /**
  * csr_roam_get_scan_filter_from_profile() - prepare scan filter from
  * given roam profile
@@ -426,7 +453,6 @@ void csr_update_scan_filter_dot11mode(struct mac_context *mac_ctx,
  * @profile: roam profile
  * @filter: Populated scan filter based on the connected profile
  * @is_roam: if filter is for roam
- * @vdev_id: vdev
  *
  * This function creates a scan filter based on the roam profile. Based on this
  * filter, scan results are obtained.
@@ -437,8 +463,8 @@ QDF_STATUS
 csr_roam_get_scan_filter_from_profile(struct mac_context *mac_ctx,
 				      struct csr_roam_profile *profile,
 				      struct scan_filter *filter,
-				      bool is_roam, uint8_t vdev_id);
-#endif
+				      bool is_roam);
+
 /**
  * csr_neighbor_roam_get_scan_filter_from_profile() - prepare scan filter from
  * connected profile
@@ -460,14 +486,12 @@ csr_neighbor_roam_get_scan_filter_from_profile(struct mac_context *mac,
  * @mac: Pointer to Global MAC structure
  * @filter: If pFilter is NULL, all cached results are returned
  * @phResult: an object for the result.
- * @scoring_required: if scoding is required for AP
  *
  * Return QDF_STATUS
  */
 QDF_STATUS csr_scan_get_result(struct mac_context *mac,
 			       struct scan_filter *filter,
-			       tScanResultHandle *phResult,
-			       bool scoring_required);
+			       tScanResultHandle *phResult);
 
 /**
  * csr_scan_get_result_for_bssid - gets the scan result from scan cache for the
@@ -510,6 +534,18 @@ tCsrScanResultInfo *csr_scan_result_get_first(struct mac_context *mac,
  */
 tCsrScanResultInfo *csr_scan_result_get_next(struct mac_context *mac,
 					     tScanResultHandle hScanResult);
+
+/*
+ * csr_get_country_code() -
+ * This function is to get the country code current being used
+ * pBuf - Caller allocated buffer with at least 3 bytes, upon success return,
+ * this has the country code
+ * pbLen - Caller allocated, as input, it indicates the length of pBuf. Upon
+ * success return, this contains the length of the data in pBuf
+ * Return QDF_STATUS
+ */
+QDF_STATUS csr_get_country_code(struct mac_context *mac, uint8_t *pBuf,
+				uint8_t *pbLen);
 
 /*
  * csr_get_regulatory_domain_for_country() -
@@ -589,6 +625,17 @@ void csr_get_vdev_type_nss(enum QDF_OPMODE dev_mode, uint8_t *nss_2g,
 #define WLAN_SCAN_STATUS_FAILURE        1
 #define WLAN_SCAN_STATUS_ABORT          2
 
+/* Ibss */
+#define WLAN_IBSS_EVENT_START_IBSS_REQ      0
+#define WLAN_IBSS_EVENT_START_IBSS_RSP      1
+#define WLAN_IBSS_EVENT_JOIN_IBSS_REQ       2
+#define WLAN_IBSS_EVENT_JOIN_IBSS_RSP       3
+#define WLAN_IBSS_EVENT_COALESCING          4
+#define WLAN_IBSS_EVENT_PEER_JOIN           5
+#define WLAN_IBSS_EVENT_PEER_LEAVE          6
+#define WLAN_IBSS_EVENT_STOP_REQ            7
+#define WLAN_IBSS_EVENT_STOP_RSP            8
+
 #define AUTO_PICK       0
 #define SPECIFIED       1
 
@@ -603,11 +650,58 @@ void csr_get_vdev_type_nss(enum QDF_OPMODE dev_mode, uint8_t *nss_2g,
 #define WLAN_80211D_SUPPORT_MULTI_DOMAIN     1
 #define WLAN_80211D_NOT_SUPPORT_MULTI_DOMAIN     2
 
-void cm_diag_get_auth_enc_type_vdev_id(struct wlan_objmgr_psoc *psoc,
-				       uint8_t *auth_type,
-				       uint8_t *ucast_cipher,
-				       uint8_t *mcast_cipher,
-				       uint8_t vdev_id);
+/**
+ * diag_auth_type_from_csr_type() - to convert CSR auth type to DIAG auth type
+ * @authtype: CSR auth type
+ *
+ * DIAG tool understands its own ENUMs, so this API can be used to convert
+ * CSR defined auth type ENUMs to DIAG defined auth type ENUMs
+ *
+ *
+ * Return: DIAG auth type
+ */
+enum mgmt_auth_type diag_auth_type_from_csr_type(enum csr_akm_type authtype);
+/**
+ * diag_enc_type_from_csr_type() - to convert CSR encr type to DIAG encr type
+ * @enctype: CSR encryption type
+ *
+ * DIAG tool understands its own ENUMs, so this API can be used to convert
+ * CSR defined encr type ENUMs to DIAG defined encr type ENUMs
+ *
+ * Return: DIAG encryption type
+ */
+enum mgmt_encrypt_type diag_enc_type_from_csr_type(eCsrEncryptionType enctype);
+/**
+ * diag_dot11_mode_from_csr_type() - to convert CSR .11 mode to DIAG .11 mode
+ * @dot11mode: CSR 80211 mode
+ *
+ * DIAG tool understands its own ENUMs, so this API can be used to convert
+ * CSR defined 80211 mode ENUMs to DIAG defined 80211 mode ENUMs
+ *
+ * Return: DIAG 80211mode
+ */
+enum mgmt_dot11_mode
+diag_dot11_mode_from_csr_type(enum csr_cfgdot11mode dot11mode);
+/**
+ * diag_ch_width_from_csr_type() - to convert CSR ch width to DIAG ch width
+ * @ch_width: CSR channel width
+ *
+ * DIAG tool understands its own ENUMs, so this API can be used to convert
+ * CSR defined ch width ENUMs to DIAG defined ch width ENUMs
+ *
+ * Return: DIAG channel width
+ */
+enum mgmt_ch_width diag_ch_width_from_csr_type(enum phy_ch_width ch_width);
+/**
+ * diag_persona_from_csr_type() - to convert QDF persona to DIAG persona
+ * @persona: QDF persona
+ *
+ * DIAG tool understands its own ENUMs, so this API can be used to convert
+ * QDF defined persona type ENUMs to DIAG defined persona type ENUMs
+ *
+ * Return: DIAG persona
+ */
+enum mgmt_bss_type diag_persona_from_csr_type(enum QDF_OPMODE persona);
 #endif /* #ifdef FEATURE_WLAN_DIAG_SUPPORT_CSR */
 /*
  * csr_scan_result_purge() -
@@ -621,29 +715,6 @@ QDF_STATUS csr_scan_result_purge(struct mac_context *mac,
 
 /* /////////////////////////////////////////Common Scan ends */
 
-#ifndef FEATURE_CM_ENABLE
-/*
- * csr_connect_security_valid_for_6ghz() - check if profile is vlid fro 6Ghz
- * @psoc: psoc pointer
- * @vdev_id: vdev id
- * @profile: connect profile
- *
- * Return bool
- */
-#ifdef CONFIG_BAND_6GHZ
-bool csr_connect_security_valid_for_6ghz(struct wlan_objmgr_psoc *psoc,
-					 uint8_t vdev_id,
-					 struct csr_roam_profile *profile);
-#else
-static inline bool
-csr_connect_security_valid_for_6ghz(struct wlan_objmgr_psoc *psoc,
-				    uint8_t vdev_id,
-				    struct csr_roam_profile *profile)
-{
-	return true;
-}
-#endif
-#endif
 /*
  * csr_roam_connect() -
  * To inititiate an association
@@ -691,19 +762,22 @@ void csr_get_pmk_info(struct mac_context *mac_ctx, uint8_t session_id,
  * csr_roam_set_psk_pmk() - store PSK/PMK in CSR session
  *
  * @mac  - pointer to global structure for MAC
- * @vdev_id - vdev id
+ * @sessionId - Sme session id
  * @psk_pmk - pointer to an array of PSK/PMK
  * @update_to_fw - Send RSO update config command to firmware to update
  * PMK
  *
  * Return QDF_STATUS - usually it succeed unless sessionId is not found
  */
-QDF_STATUS csr_roam_set_psk_pmk(struct mac_context *mac, uint8_t vdev_id,
+QDF_STATUS csr_roam_set_psk_pmk(struct mac_context *mac, uint32_t sessionId,
 				uint8_t *psk_pmk, size_t pmk_len,
 				bool update_to_fw);
-#endif
 
-#ifndef FEATURE_CM_ENABLE
+QDF_STATUS csr_roam_set_key_mgmt_offload(struct mac_context *mac_ctx,
+					 uint32_t session_id,
+					 bool roam_key_mgmt_offload_enabled,
+					 struct pmkid_mode_bits *pmkid_modes);
+#endif
 /*
  * csr_roam_get_wpa_rsn_req_ie() -
  * Return the WPA or RSN IE CSR passes to PE to JOIN request or START_BSS
@@ -716,7 +790,34 @@ QDF_STATUS csr_roam_set_psk_pmk(struct mac_context *mac, uint8_t vdev_id,
  */
 QDF_STATUS csr_roam_get_wpa_rsn_req_ie(struct mac_context *mac, uint32_t sessionId,
 				       uint32_t *pLen, uint8_t *pBuf);
-#endif
+
+/*
+ * csr_roam_get_wpa_rsn_rsp_ie() -
+ * Return the WPA or RSN IE from the beacon or probe rsp if connected
+ *
+ * pLen - caller allocated memory that has the length of pBuf as input.
+ * Upon returned, *pLen has the needed or IE length in pBuf.
+ * pBuf - Caller allocated memory that contain the IE field, if any, upon return
+ * Return QDF_STATUS - when fail, it usually means the buffer allocated is not
+ * big enough
+ */
+QDF_STATUS csr_roam_get_wpa_rsn_rsp_ie(struct mac_context *mac, uint32_t sessionId,
+				       uint32_t *pLen, uint8_t *pBuf);
+
+/**
+ * csr_roam_get_connect_profile() - To return the current connect profile,
+ * caller must call csr_roam_free_connect_profile after it is done and before
+ * reuse for another csr_roam_get_connect_profile call.
+ *
+ * @mac:          pointer to global adapter context
+ * @sessionId:     session ID
+ * @pProfile:      pointer to a caller allocated structure
+ *                 tCsrRoamConnectedProfile
+ *
+ * Return: QDF_STATUS. Failure if not connected, success otherwise
+ */
+QDF_STATUS csr_roam_get_connect_profile(struct mac_context *mac, uint32_t sessionId,
+					tCsrRoamConnectedProfile *pProfile);
 
 void csr_roam_free_connect_profile(tCsrRoamConnectedProfile *profile);
 
@@ -735,13 +836,13 @@ QDF_STATUS csr_apply_channel_and_power_list(struct mac_context *mac);
  * @mac: pointer to mac context
  * @session_id: Session ID
  * @reason: CSR disconnect reason code as per @enum eCsrRoamDisconnectReason
- * @mac_reason: Mac Disconnect reason code as per @enum wlan_reason_code
+ * @mac_reason: Mac Disconnect reason code as per @enum eSirMacReasonCodes
  *
  * Return QDF_STATUS
  */
 QDF_STATUS csr_roam_disconnect(struct mac_context *mac, uint32_t session_id,
 			       eCsrRoamDisconnectReason reason,
-			       enum wlan_reason_code mac_reason);
+			       tSirMacReasonCodes mac_reason);
 
 /* This function is used to stop a BSS. It is similar of csr_roamIssueDisconnect
  * but this function doesn't have any logic other than blindly trying to stop
@@ -810,15 +911,9 @@ void csr_roam_ft_pre_auth_rsp_processor(struct mac_context *mac_ctx,
 {}
 #endif
 
-#ifdef FEATURE_WLAN_ESE
+#if defined(FEATURE_WLAN_ESE)
 void update_cckmtsf(uint32_t *timeStamp0, uint32_t *timeStamp1,
 		    uint64_t *incr);
-void csr_update_prev_ap_info(struct csr_roam_session *session,
-			     struct wlan_objmgr_vdev *vdev);
-
-#else
-static inline void csr_update_prev_ap_info(struct csr_roam_session *session,
-					   struct wlan_objmgr_vdev *vdev) {}
 #endif
 
 QDF_STATUS csr_roam_enqueue_preauth(struct mac_context *mac, uint32_t sessionId,
@@ -828,22 +923,18 @@ QDF_STATUS csr_roam_enqueue_preauth(struct mac_context *mac, uint32_t sessionId,
 QDF_STATUS csr_dequeue_roam_command(struct mac_context *mac,
 				enum csr_roam_reason reason,
 				uint8_t session_id);
+void csr_init_occupied_channels_list(struct mac_context *mac, uint8_t sessionId);
+
 QDF_STATUS csr_scan_create_entry_in_scan_cache(struct mac_context *mac,
 						uint32_t sessionId,
 						struct qdf_mac_addr bssid,
 						uint32_t ch_freq);
 
 QDF_STATUS csr_update_channel_list(struct mac_context *mac);
-
-/**
- * csr_update_pmk_cache_ft - API to update MDID in PMKSA cache entry
- * @session_id: session ID
- * @session: sme session pointer
- *
- * Return: None
- */
-void csr_update_pmk_cache_ft(struct mac_context *mac, uint32_t session_id,
-			     struct csr_roam_session *session);
+QDF_STATUS csr_roam_del_pmkid_from_cache(struct mac_context *mac,
+					 uint32_t sessionId,
+					 tPmkidCacheInfo *pmksa,
+					 bool flush_cache);
 
 #if defined(WLAN_SAE_SINGLE_PMK) && defined(WLAN_FEATURE_ROAM_OFFLOAD)
 /**
@@ -900,23 +991,19 @@ QDF_STATUS csr_sta_continue_csa(struct mac_context *mac_ctx,
 QDF_STATUS csr_set_ht2040_mode(struct mac_context *mac, uint32_t sessionId,
 			       ePhyChanBondState cbMode, bool obssEnabled);
 #endif
-#ifndef FEATURE_CM_ENABLE
 QDF_STATUS csr_scan_handle_search_for_ssid(struct mac_context *mac_ctx,
 					   uint32_t session_id);
 QDF_STATUS csr_scan_handle_search_for_ssid_failure(struct mac_context *mac,
 		uint32_t session_id);
 void csr_saved_scan_cmd_free_fields(struct mac_context *mac_ctx,
 				    struct csr_roam_session *session);
-#endif
-
 struct bss_description*
 csr_get_fst_bssdescr_ptr(tScanResultHandle result_handle);
 
-#ifndef FEATURE_CM_ENABLE
 struct bss_description*
 csr_get_bssdescr_from_scan_handle(tScanResultHandle result_handle,
 				  struct bss_description *bss_descr);
-#endif
+
 bool is_disconnect_pending(struct mac_context *mac_ctx,
 				   uint8_t sessionid);
 
@@ -956,6 +1043,15 @@ csr_roam_set_bss_config_cfg(struct mac_context *mac_ctx, uint32_t session_id,
 void csr_prune_channel_list_for_mode(struct mac_context *mac,
 				     struct csr_channel *pChannelList);
 
+#ifdef WLAN_FEATURE_11W
+bool csr_is_mfpc_capable(struct sDot11fIERSN *rsn);
+#else
+static inline bool csr_is_mfpc_capable(struct sDot11fIERSN *rsn)
+{
+	return false;
+}
+#endif
+
 /**
  * csr_get_rf_band()
  *
@@ -980,8 +1076,6 @@ bool csr_lookup_pmkid_using_bssid(struct mac_context *mac,
 					struct csr_roam_session *session,
 					tPmkidCacheInfo *pmk_cache);
 
-#ifndef FEATURE_CM_ENABLE
-
 /**
  * csr_lookup_fils_pmkid  - Lookup FILS PMKID using ssid and cache id
  * @mac:       Pointer to mac context
@@ -996,8 +1090,6 @@ bool csr_lookup_pmkid_using_bssid(struct mac_context *mac,
 bool csr_lookup_fils_pmkid(struct mac_context *mac, uint8_t vdev_id,
 			   uint8_t *cache_id, uint8_t *ssid,
 			   uint8_t ssid_len, struct qdf_mac_addr *bssid);
-#endif
-
 /**
  * csr_is_pmkid_found_for_peer() - check if pmkid sent by peer is present
 				   in PMK cache. Used in SAP mode.
@@ -1016,14 +1108,19 @@ bool csr_is_pmkid_found_for_peer(struct mac_context *mac,
 #ifdef WLAN_FEATURE_11AX
 void csr_update_session_he_cap(struct mac_context *mac_ctx,
 			struct csr_roam_session *session);
+void csr_init_session_twt_cap(struct csr_roam_session *session,
+			      uint32_t type_of_persona);
 #else
 static inline void csr_update_session_he_cap(struct mac_context *mac_ctx,
 			struct csr_roam_session *session)
 {
 }
-#endif
 
-#ifndef FEATURE_CM_ENABLE
+static inline void csr_init_session_twt_cap(struct csr_roam_session *session,
+					    uint32_t type_of_persona)
+{
+}
+#endif
 /**
  * csr_get_channel_for_hw_mode_change() - This function to find
  *                                       out if HW mode change
@@ -1067,8 +1164,6 @@ uint32_t
 csr_scan_get_channel_for_hw_mode_change(
 	struct mac_context *mac_ctx, uint32_t session_id,
 	struct csr_roam_profile *profile);
-#endif
-
 /**
  * csr_setup_vdev_session() - API to setup vdev mac session
  * @vdev_mlme: vdev mlme private object
@@ -1080,22 +1175,21 @@ csr_scan_get_channel_for_hw_mode_change(
 QDF_STATUS csr_setup_vdev_session(struct vdev_mlme_obj *vdev_mlme);
 
 
-#ifdef WLAN_UNIT_TEST
 #ifdef FEATURE_WLAN_DIAG_SUPPORT_CSR
 /**
- * csr_cm_get_sta_cxn_info() - This function populates all the connection
+ * csr_get_sta_cxn_info() - This function populates all the connection
  *			    information which is formed by DUT-STA to AP
  * @mac_ctx: pointer to mac context
- * @vdev_id: vdev id
+ * @session: pointer to sta session
+ * @conn_profile: pointer to connected DUTSTA-REFAP profile
  * @buf: pointer to char buffer to write all the connection information.
  * @buf_size: maximum size of the provided buffer
  *
  * Returns: None (information gets populated in buffer)
  */
-void csr_cm_get_sta_cxn_info(struct mac_context *mac_ctx, uint8_t vdev_id,
-			     char *buf, uint32_t buf_sz);
-
+void csr_get_sta_cxn_info(struct mac_context *mac_ctx,
+			  struct csr_roam_session *session,
+			  struct tagCsrRoamConnectedProfile *conn_profile,
+			  char *buf, uint32_t buf_sz);
 #endif
-#endif
-
 #endif /* CSR_INSIDE_API_H__ */

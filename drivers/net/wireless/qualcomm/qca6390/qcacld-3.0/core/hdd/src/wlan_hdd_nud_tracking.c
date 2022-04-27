@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -24,7 +24,6 @@
 #include "wlan_hdd_main.h"
 #include "wlan_blm_ucfg_api.h"
 #include "hdd_dp_cfg.h"
-#include <cdp_txrx_misc.h>
 
 void hdd_nud_set_gateway_addr(struct hdd_adapter *adapter,
 			      struct qdf_mac_addr gw_mac_addr)
@@ -235,8 +234,6 @@ hdd_handle_nud_fail_sta(struct hdd_context *hdd_ctx,
 	struct reject_ap_info ap_info;
 	struct hdd_station_ctx *sta_ctx = WLAN_HDD_GET_STATION_CTX_PTR(adapter);
 
-	/* This is temp ifdef will be removed in near future */
-#ifndef FEATURE_CM_ENABLE
 	qdf_mutex_acquire(&adapter->disconnection_status_lock);
 	if (adapter->disconnection_in_progress) {
 		qdf_mutex_release(&adapter->disconnection_status_lock);
@@ -244,7 +241,7 @@ hdd_handle_nud_fail_sta(struct hdd_context *hdd_ctx,
 		return;
 	}
 	qdf_mutex_release(&adapter->disconnection_status_lock);
-#endif
+
 	if (hdd_is_roaming_in_progress(hdd_ctx)) {
 		hdd_debug("Roaming already in progress, cannot trigger roam.");
 		return;
@@ -267,12 +264,6 @@ hdd_handle_nud_fail_sta(struct hdd_context *hdd_ctx,
 static void
 hdd_handle_nud_fail_non_sta(struct hdd_adapter *adapter)
 {
-	/* This is temp ifdef will be removed in near future */
-#ifdef FEATURE_CM_ENABLE
-	wlan_hdd_cm_issue_disconnect(adapter,
-				     REASON_GATEWAY_REACHABILITY_FAILURE,
-				     false);
-#else
 	int status;
 
 	qdf_mutex_acquire(&adapter->disconnection_status_lock);
@@ -287,16 +278,14 @@ hdd_handle_nud_fail_non_sta(struct hdd_adapter *adapter)
 
 	hdd_debug("Disconnecting vdev with vdev id: %d",
 		  adapter->vdev_id);
-
 	/* Issue Disconnect */
 	status = wlan_hdd_disconnect(adapter, eCSR_DISCONNECT_REASON_DEAUTH,
-				     REASON_GATEWAY_REACHABILITY_FAILURE);
+				     eSIR_MAC_GATEWAY_REACHABILITY_FAILURE);
 	if (0 != status) {
 		hdd_err("wlan_hdd_disconnect failed, status: %d",
 			status);
 		hdd_set_disconnect_status(adapter, false);
 	}
-#endif
 }
 
 #ifdef WLAN_NUD_TRACKING
@@ -326,8 +315,8 @@ hdd_is_roam_after_nud_enabled(struct hdd_config *config)
 static void __hdd_nud_failure_work(struct hdd_adapter *adapter)
 {
 	struct hdd_context *hdd_ctx;
+	eConnectionState conn_state;
 	int status;
-	void *soc = cds_get_context(QDF_MODULE_ID_SOC);
 
 	hdd_enter();
 
@@ -340,23 +329,16 @@ static void __hdd_nud_failure_work(struct hdd_adapter *adapter)
 	if (0 != status)
 		return;
 
-	if (!hdd_cm_is_vdev_associated(adapter)) {
+	conn_state = (WLAN_HDD_GET_STATION_CTX_PTR(adapter))
+		      ->conn_info.conn_state;
+
+	if (eConnectionState_Associated != conn_state) {
 		hdd_debug("Not in Connected State");
 		return;
 	}
 	if (adapter->nud_tracking.curr_state != NUD_FAILED) {
 		hdd_debug("Not in NUD_FAILED state");
 		return;
-	}
-
-	if (soc && cdp_cfg_get(soc, cfg_dp_enable_data_stall)) {
-		hdd_dp_err("Data stall due to NUD failure");
-		cdp_post_data_stall_event
-			(soc,
-			 DATA_STALL_LOG_INDICATOR_HOST_DRIVER,
-			 DATA_STALL_LOG_NUD_FAILURE,
-			 OL_TXRX_PDEV_ID, 0XFF,
-			 DATA_STALL_LOG_RECOVERY_TRIGGER_PDR);
 	}
 
 	if (adapter->device_mode == QDF_STA_MODE &&
@@ -451,6 +433,7 @@ static void hdd_nud_filter_netevent(struct neighbour *neigh)
 	int status;
 	struct hdd_adapter *adapter;
 	struct hdd_context *hdd_ctx;
+	eConnectionState conn_state;
 	const struct net_device *netdev = neigh->dev;
 
 	hdd_enter();
@@ -480,7 +463,10 @@ static void hdd_nud_filter_netevent(struct neighbour *neigh)
 	if (adapter->device_mode != QDF_STA_MODE)
 		return;
 
-	if (!hdd_cm_is_vdev_associated(adapter)) {
+	conn_state = (WLAN_HDD_GET_STATION_CTX_PTR(adapter))
+		->conn_info.conn_state;
+
+	if (eConnectionState_Associated != conn_state) {
 		hdd_debug("Not in Connected State");
 		return;
 	}
@@ -506,20 +492,7 @@ static void hdd_nud_filter_netevent(struct neighbour *neigh)
 
 	case NUD_FAILED:
 		hdd_debug("NUD_FAILED [0x%x]", neigh->nud_state);
-		/*
-		 * This condition is to handle the scenario where NUD_FAILED
-		 * events are received without any NUD_PROBE/INCOMPLETE event
-		 * post roaming. Nud state is set to NONE as part of roaming.
-		 * NUD_FAILED is not honored when the curr state is any state
-		 * other than NUD_PROBE/INCOMPLETE so post roaming, nud state
-		 * is moved to NUD_PROBE to honor future NUD_FAILED events.
-		 */
-		if (adapter->nud_tracking.curr_state == NUD_NONE) {
-			hdd_nud_capture_stats(adapter, NUD_PROBE);
-			hdd_nud_set_tracking(adapter, NUD_PROBE, true);
-		} else {
-			hdd_nud_process_failure_event(adapter);
-		}
+		hdd_nud_process_failure_event(adapter);
 		break;
 	default:
 		hdd_debug("NUD Event For Other State [0x%x]",
@@ -601,9 +574,4 @@ void hdd_nud_unregister_netevent_notifier(struct hdd_context *hdd_ctx)
 		if (!ret)
 			hdd_debug("Unregistered netevent notifier");
 	}
-}
-
-void hdd_nud_indicate_roam(struct hdd_adapter *adapter)
-{
-	hdd_nud_set_tracking(adapter, NUD_NONE, false);
 }

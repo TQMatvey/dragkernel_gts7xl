@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -26,6 +26,10 @@
 #include "cfg_ucfg_api.h"
 #include "wlan_fwol_ucfg_api.h"
 
+#ifdef SEC_CONFIG_PSM_SYSFS
+extern int wlan_hdd_sec_get_psm(void);
+#endif /* SEC_CONFIG_PSM_SYSFS */
+
 static struct wlan_pmo_ctx *gp_pmo_ctx;
 
 QDF_STATUS pmo_allocate_ctx(void)
@@ -39,9 +43,11 @@ QDF_STATUS pmo_allocate_ctx(void)
 	/* allocate offload mgr ctx */
 	gp_pmo_ctx = (struct wlan_pmo_ctx *)qdf_mem_malloc(
 			sizeof(*gp_pmo_ctx));
-	if (!gp_pmo_ctx)
+	if (!gp_pmo_ctx) {
+		pmo_err("unable to allocate pmo_ctx");
+		QDF_ASSERT(0);
 		return QDF_STATUS_E_NOMEM;
-
+	}
 	qdf_spinlock_create(&gp_pmo_ctx->lock);
 
 	return QDF_STATUS_SUCCESS;
@@ -109,10 +115,6 @@ static void wlan_pmo_wow_pulse_init_cfg(struct wlan_objmgr_psoc *psoc,
 			cfg_get(psoc, CFG_PMO_WOW_PULSE_HIGH);
 	psoc_cfg->wow_pulse_interval_low =
 			cfg_get(psoc, CFG_PMO_WOW_PULSE_LOW);
-	psoc_cfg->wow_pulse_repeat_count =
-			cfg_get(psoc, CFG_PMO_WOW_PULSE_REPEAT);
-	psoc_cfg->wow_pulse_init_state =
-			cfg_get(psoc, CFG_PMO_WOW_PULSE_INIT);
 }
 #else
 static void wlan_pmo_wow_pulse_init_cfg(struct wlan_objmgr_psoc *psoc,
@@ -171,24 +173,6 @@ static void wlan_pmo_ra_filtering_init_cfg(struct wlan_objmgr_psoc *psoc,
 }
 #endif
 
-#ifdef WLAN_ENABLE_GPIO_WAKEUP
-static void wlan_pmo_gpio_wakeup_init_cfg(struct wlan_objmgr_psoc *psoc,
-					  struct pmo_psoc_cfg *psoc_cfg)
-{
-	psoc_cfg->enable_gpio_wakeup =
-		cfg_get(psoc, CFG_PMO_ENABLE_GPIO_WAKEUP);
-	psoc_cfg->gpio_wakeup_pin =
-		cfg_get(psoc, CFG_PMO_GPIO_WAKEUP_PIN);
-	psoc_cfg->gpio_wakeup_mode =
-		cfg_get(psoc, CFG_PMO_GPIO_WAKEUP_MODE);
-}
-#else
-static void wlan_pmo_gpio_wakeup_init_cfg(struct wlan_objmgr_psoc *psoc,
-					  struct pmo_psoc_cfg *psoc_cfg)
-{
-}
-#endif
-
 static void wlan_pmo_init_cfg(struct wlan_objmgr_psoc *psoc,
 			      struct pmo_psoc_cfg *psoc_cfg)
 {
@@ -206,14 +190,13 @@ static void wlan_pmo_init_cfg(struct wlan_objmgr_psoc *psoc,
 	psoc_cfg->power_save_mode = cfg_get(psoc, CFG_PMO_POWERSAVE_MODE);
 	psoc_cfg->is_mod_dtim_on_sys_suspend_enabled =
 			cfg_get(psoc, CFG_PMO_MOD_DTIM_ON_SYS_SUSPEND);
-	psoc_cfg->is_bus_suspend_enabled_in_sap_mode =
-		cfg_get(psoc, CFG_ENABLE_BUS_SUSPEND_IN_SAP_MODE);
-	psoc_cfg->is_bus_suspend_enabled_in_go_mode =
-		cfg_get(psoc, CFG_ENABLE_BUS_SUSPEND_IN_GO_MODE);
-	psoc_cfg->default_power_save_mode = psoc_cfg->power_save_mode;
 	psoc_cfg->max_ps_poll = cfg_get(psoc, CFG_PMO_MAX_PS_POLL);
 
 	psoc_cfg->wow_enable = cfg_get(psoc, CFG_PMO_WOW_ENABLE);
+	psoc_cfg->wowlan_deauth_enable =
+			cfg_get(psoc, CFG_PMO_WOWLAN_DEAUTH_ENABLE);
+	psoc_cfg->wowlan_disassoc_enable =
+			cfg_get(psoc, CFG_PMO_WOWLAN_DISASSOC_ENABLE);
 
 	wlan_extwow_init_cfg(psoc, psoc_cfg);
 	psoc_cfg->apf_enable = cfg_get(psoc, CFG_PMO_APF_ENABLE);
@@ -234,9 +217,12 @@ static void wlan_pmo_init_cfg(struct wlan_objmgr_psoc *psoc,
 			cfg_get(psoc, CFG_ACTIVE_MC_BC_APF_MODE);
 	psoc_cfg->ito_repeat_count = cfg_get(psoc, CFG_ITO_REPEAT_COUNT);
 	wlan_pmo_ra_filtering_init_cfg(psoc, psoc_cfg);
-	wlan_pmo_gpio_wakeup_init_cfg(psoc, psoc_cfg);
-	psoc_cfg->disconnect_sap_tdls_in_wow =
-			cfg_get(psoc, CFG_DISCONNECT_SAP_TDLS_IN_WOW);
+#ifdef SEC_CONFIG_PSM_SYSFS
+	if (wlan_hdd_sec_get_psm()) {
+		psoc_cfg->arp_offload_enable = 0;
+		printk("[WIFI] CFG_PMO_ENABLE_HOST_ARPOFFLOAD : sec_control_psm = %d", psoc_cfg->arp_offload_enable);
+	}
+#endif /* SEC_CONFIG_PSM_SYSFS */
 }
 
 QDF_STATUS pmo_psoc_open(struct wlan_objmgr_psoc *psoc)

@@ -45,9 +45,6 @@
 #define QDF_NBUF_CB_TX_DMA_BI_MAP(skb) \
 	(((struct qdf_nbuf_cb *)((skb)->cb))->u.tx.dev.priv_cb_m. \
 	dma_option.bi_map)
-#define QDF_NBUF_CB_TX_EXTRA_FRAG_FLAGS_NOTIFY_COMP(skb) \
-	(((struct qdf_nbuf_cb *)((skb)->cb))->u.tx.dev.priv_cb_m. \
-	flag_notify_comp)
 
 #define QDF_NBUF_CB_RX_PEER_ID(skb) \
 	(((struct qdf_nbuf_cb *)((skb)->cb))->u.rx.dev.priv_cb_m.dp. \
@@ -79,14 +76,6 @@
 #define  QDF_NBUF_CB_RX_PACKET_EXC_FRAME(skb) \
 	 (((struct qdf_nbuf_cb *)((skb)->cb))->u.rx.dev.priv_cb_m. \
 	 exc_frm)
-
-#define  QDF_NBUF_CB_RX_PACKET_IPA_SMMU_MAP(skb) \
-	 (((struct qdf_nbuf_cb *)((skb)->cb))->u.rx.dev.priv_cb_m. \
-	 ipa_smmu_map)
-
-#define  QDF_NBUF_CB_RX_PACKET_REO_DEST_IND(skb) \
-	(((struct qdf_nbuf_cb *)((skb)->cb))->u.rx.dev.priv_cb_m. \
-	reo_dest_ind)
 
 #define __qdf_nbuf_ipa_owned_get(skb) \
 	QDF_NBUF_CB_TX_IPA_OWNED(skb)
@@ -177,8 +166,5 @@ qdf_nbuf_deinit_replenish_timer(void)
 {
 	__qdf_nbuf_deinit_replenish_timer();
 }
-
-static inline void
-__qdf_nbuf_dma_inv_range(const void *buf_start, const void *buf_end) {}
 
 #endif /*_I_QDF_NBUF_M_H */

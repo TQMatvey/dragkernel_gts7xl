@@ -655,15 +655,6 @@ bool htc_is_endpoint_active(HTC_HANDLE HTCHandle,
 			      HTC_ENDPOINT_ID Endpoint);
 
 /**
- * htc_set_pkt_dbg - Set up debug flag for HTC packets
- * @HTCHandle - HTC handle
- * @dbg_flag - enable or disable flag
- *
- * Return: none
- */
-void htc_set_pkt_dbg(HTC_HANDLE handle, A_BOOL dbg_flag);
-
-/**
  * htc_set_nodrop_pkt - Set up nodrop pkt flag for mboxping nodrop pkt
  * @HTCHandle - HTC handle
  * @isNodropPkt - indicates whether it is nodrop pkt
@@ -790,23 +781,9 @@ void htc_clear_bundle_stats(HTC_HANDLE HTCHandle);
 #ifdef FEATURE_RUNTIME_PM
 int htc_pm_runtime_get(HTC_HANDLE htc_handle);
 int htc_pm_runtime_put(HTC_HANDLE htc_handle);
-
-/**
- * htc_dec_return_runtime_cnt: Decrement htc runtime count
- * @htc: HTC handle
- *
- * Return: value of runtime count after decrement
- */
-int32_t htc_dec_return_runtime_cnt(HTC_HANDLE htc);
 #else
 static inline int htc_pm_runtime_get(HTC_HANDLE htc_handle) { return 0; }
 static inline int htc_pm_runtime_put(HTC_HANDLE htc_handle) { return 0; }
-
-static inline
-int32_t htc_dec_return_runtime_cnt(HTC_HANDLE htc)
-{
-	return -1;
-}
 #endif
 
 /**

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -111,7 +111,7 @@ static QDF_STATUS pmo_core_calculate_listen_interval(
 			struct pmo_vdev_priv_obj *vdev_ctx,
 			uint32_t *listen_interval)
 {
-	uint32_t max_mod_dtim, max_dtim = 0;
+	uint32_t max_mod_dtim, max_dtim;
 	uint32_t beacon_interval_mod;
 	struct pmo_psoc_cfg *psoc_cfg = &vdev_ctx->pmo_psoc_ctx->psoc_cfg;
 	struct wlan_objmgr_psoc *psoc = wlan_vdev_get_psoc(vdev);
@@ -166,11 +166,6 @@ static QDF_STATUS pmo_core_calculate_listen_interval(
 			*listen_interval = cfg_default(CFG_LISTEN_INTERVAL);
 		}
 	}
-
-	pmo_info("sta dynamic dtim %d sta mod dtim %d sta_max_li_mod_dtim %d max_dtim %d",
-		 psoc_cfg->sta_dynamic_dtim, psoc_cfg->sta_mod_dtim,
-		 psoc_cfg->sta_max_li_mod_dtim, max_dtim);
-
 	return QDF_STATUS_SUCCESS;
 }
 
@@ -321,6 +316,7 @@ static void pmo_core_set_suspend_dtim(struct wlan_objmgr_psoc *psoc)
 	struct pmo_vdev_priv_obj *vdev_ctx;
 	struct pmo_psoc_priv_obj *psoc_ctx;
 	bool li_offload_support = false;
+	QDF_STATUS status;
 
 	pmo_psoc_with_ctx(psoc, psoc_ctx) {
 		li_offload_support = psoc_ctx->caps.li_offload;
@@ -331,9 +327,12 @@ static void pmo_core_set_suspend_dtim(struct wlan_objmgr_psoc *psoc)
 
 	/* Iterate through VDEV list */
 	for (vdev_id = 0; vdev_id < WLAN_UMAC_PSOC_MAX_VDEVS; vdev_id++) {
-		vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
-							    WLAN_PMO_ID);
+		vdev = pmo_psoc_get_vdev(psoc, vdev_id);
 		if (!vdev)
+			continue;
+
+		status = pmo_vdev_get_ref(vdev);
+		if (QDF_IS_STATUS_ERROR(status))
 			continue;
 
 		vdev_ctx = pmo_vdev_get_priv(vdev);
@@ -341,7 +340,7 @@ static void pmo_core_set_suspend_dtim(struct wlan_objmgr_psoc *psoc)
 		    && !li_offload_support)
 			pmo_core_set_vdev_suspend_dtim(psoc, vdev, vdev_ctx);
 		pmo_configure_vdev_suspend_params(psoc, vdev, vdev_ctx);
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_PMO_ID);
+		pmo_vdev_put_ref(vdev);
 	}
 }
 
@@ -387,8 +386,7 @@ void pmo_core_configure_dynamic_wake_events(struct wlan_objmgr_psoc *psoc)
 		qdf_mem_zero(enable_mask,  sizeof(uint32_t) * BM_LEN);
 		qdf_mem_zero(disable_mask, sizeof(uint32_t) * BM_LEN);
 
-		vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
-							    WLAN_PMO_ID);
+		vdev = pmo_psoc_get_vdev(psoc, vdev_id);
 		if (!vdev)
 			continue;
 
@@ -427,8 +425,6 @@ void pmo_core_configure_dynamic_wake_events(struct wlan_objmgr_psoc *psoc)
 			pmo_tgt_enable_wow_wakeup_event(vdev, enable_mask);
 		if (disable_configured)
 			pmo_tgt_disable_wow_wakeup_event(vdev, disable_mask);
-
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_PMO_ID);
 	}
 
 }
@@ -437,16 +433,19 @@ static void pmo_core_enable_runtime_pm_offloads(struct wlan_objmgr_psoc *psoc)
 {
 	uint8_t vdev_id;
 	struct wlan_objmgr_vdev *vdev;
+	QDF_STATUS status;
 
 	/* Iterate through VDEV list */
 	for (vdev_id = 0; vdev_id < WLAN_UMAC_PSOC_MAX_VDEVS; vdev_id++) {
-		vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
-							    WLAN_PMO_ID);
+		vdev = pmo_psoc_get_vdev(psoc, vdev_id);
 		if (!vdev)
+			continue;
+		status = pmo_vdev_get_ref(vdev);
+		if (QDF_IS_STATUS_ERROR(status))
 			continue;
 
 		pmo_register_action_frame_patterns(vdev, QDF_RUNTIME_SUSPEND);
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_PMO_ID);
+		pmo_vdev_put_ref(vdev);
 	}
 }
 
@@ -454,16 +453,19 @@ static void pmo_core_disable_runtime_pm_offloads(struct wlan_objmgr_psoc *psoc)
 {
 	uint8_t vdev_id;
 	struct wlan_objmgr_vdev *vdev;
+	QDF_STATUS status;
 
 	/* Iterate through VDEV list */
 	for (vdev_id = 0; vdev_id < WLAN_UMAC_PSOC_MAX_VDEVS; vdev_id++) {
-		vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
-							    WLAN_PMO_ID);
+		vdev = pmo_psoc_get_vdev(psoc, vdev_id);
 		if (!vdev)
+			continue;
+		status = pmo_vdev_get_ref(vdev);
+		if (QDF_IS_STATUS_ERROR(status))
 			continue;
 
 		pmo_clear_action_frame_patterns(vdev);
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_PMO_ID);
+		pmo_vdev_put_ref(vdev);
 	}
 }
 
@@ -603,6 +605,7 @@ static void pmo_core_set_resume_dtim(struct wlan_objmgr_psoc *psoc)
 	struct pmo_vdev_priv_obj *vdev_ctx;
 	struct pmo_psoc_priv_obj *psoc_ctx;
 	bool li_offload_support = false;
+	QDF_STATUS status;
 
 	pmo_psoc_with_ctx(psoc, psoc_ctx) {
 		li_offload_support = psoc_ctx->caps.li_offload;
@@ -613,9 +616,12 @@ static void pmo_core_set_resume_dtim(struct wlan_objmgr_psoc *psoc)
 
 	/* Iterate through VDEV list */
 	for (vdev_id = 0; vdev_id < WLAN_UMAC_PSOC_MAX_VDEVS; vdev_id++) {
-		vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
-							    WLAN_PMO_ID);
+		vdev = pmo_psoc_get_vdev(psoc, vdev_id);
 		if (!vdev)
+			continue;
+
+		status = pmo_vdev_get_ref(vdev);
+		if (QDF_IS_STATUS_ERROR(status))
 			continue;
 
 		vdev_ctx = pmo_vdev_get_priv(vdev);
@@ -623,7 +629,7 @@ static void pmo_core_set_resume_dtim(struct wlan_objmgr_psoc *psoc)
 		    && !li_offload_support)
 			pmo_core_set_vdev_resume_dtim(psoc, vdev, vdev_ctx);
 		pmo_configure_vdev_resume_params(psoc, vdev, vdev_ctx);
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_PMO_ID);
+		pmo_vdev_put_ref(vdev);
 	}
 }
 
@@ -740,7 +746,6 @@ pmo_core_enable_wow_in_fw(struct wlan_objmgr_psoc *psoc,
 	QDF_STATUS status;
 
 	pmo_enter();
-	pmo_core_update_wow_reason_parsed(psoc_ctx, false);
 	qdf_event_reset(&psoc_ctx->wow.target_suspend);
 	pmo_core_set_wow_nack(psoc_ctx, false);
 	host_credits = pmo_tgt_psoc_get_host_credits(psoc);
@@ -756,8 +761,7 @@ pmo_core_enable_wow_in_fw(struct wlan_objmgr_psoc *psoc,
 	default:
 		pmo_err("Invalid interface pause setting: %d",
 			 wow_params->interface_pause);
-		/* intentional to default */
-		/* fallthrough */
+		/* intentional fall-through to default */
 	case PMO_WOW_INTERFACE_PAUSE_DEFAULT:
 		param.can_suspend_link =
 			htc_can_suspend_link(
@@ -812,8 +816,6 @@ pmo_core_enable_wow_in_fw(struct wlan_objmgr_psoc *psoc,
 	if (type == QDF_SYSTEM_SUSPEND) {
 		pmo_info("system suspend wow");
 		param.flags |= WMI_WOW_FLAG_SYSTEM_SUSPEND_WOW;
-	} else if (type == QDF_UNIT_TEST_WOW_SUSPEND) {
-		pmo_info("unit test wow suspend");
 	} else {
 		pmo_info("RTPM wow");
 	}
@@ -840,8 +842,7 @@ pmo_core_enable_wow_in_fw(struct wlan_objmgr_psoc *psoc,
 			pmo_tgt_psoc_get_host_credits(psoc),
 			pmo_tgt_psoc_get_pending_cmnds(psoc));
 		pmo_tgt_update_target_suspend_flag(psoc, false);
-		if (!psoc_ctx->wow.target_suspend.force_set)
-			qdf_trigger_self_recovery(psoc, QDF_SUSPEND_TIMEOUT);
+		qdf_trigger_self_recovery(psoc, QDF_SUSPEND_TIMEOUT);
 		goto out;
 	}
 
@@ -851,8 +852,6 @@ pmo_core_enable_wow_in_fw(struct wlan_objmgr_psoc *psoc,
 		status = QDF_STATUS_E_AGAIN;
 		goto out;
 	}
-
-	pmo_tgt_update_target_suspend_acked_flag(psoc, true);
 
 	host_credits = pmo_tgt_psoc_get_host_credits(psoc);
 	wmi_pending_cmds = pmo_tgt_psoc_get_pending_cmnds(psoc);
@@ -900,10 +899,7 @@ QDF_STATUS pmo_core_psoc_suspend_target(struct wlan_objmgr_psoc *psoc,
 	if (QDF_IS_STATUS_ERROR(status)) {
 		pmo_err("Failed to get ACK from firmware for pdev suspend");
 		pmo_tgt_update_target_suspend_flag(psoc, false);
-		if (!psoc_ctx->wow.target_suspend.force_set)
-			qdf_trigger_self_recovery(psoc, QDF_SUSPEND_TIMEOUT);
-	} else {
-		pmo_tgt_update_target_suspend_acked_flag(psoc, true);
+		qdf_trigger_self_recovery(psoc, QDF_SUSPEND_TIMEOUT);
 	}
 
 out:
@@ -980,7 +976,6 @@ QDF_STATUS pmo_core_psoc_bus_runtime_suspend(struct wlan_objmgr_psoc *psoc,
 	QDF_STATUS status;
 	int ret;
 	struct pmo_wow_enable_params wow_params = {0};
-	struct pmo_psoc_priv_obj *psoc_ctx;
 	qdf_time_t begin, end;
 	int pending;
 
@@ -1016,7 +1011,7 @@ QDF_STATUS pmo_core_psoc_bus_runtime_suspend(struct wlan_objmgr_psoc *psoc,
 	ret = hif_pre_runtime_suspend(hif_ctx);
 	if (ret) {
 		status = qdf_status_from_os_return(ret);
-		goto pre_runtime_failure;
+		goto runtime_failure;
 	}
 
 	status = cdp_runtime_suspend(dp_soc, pdev_id);
@@ -1036,8 +1031,6 @@ QDF_STATUS pmo_core_psoc_bus_runtime_suspend(struct wlan_objmgr_psoc *psoc,
 	status = pmo_core_psoc_configure_suspend(psoc, true);
 	if (status != QDF_STATUS_SUCCESS)
 		goto resume_htc;
-
-	hif_pm_set_link_state(hif_ctx, HIF_PM_LINK_STATE_DOWN);
 
 	status = pmo_core_psoc_bus_suspend_req(psoc, QDF_RUNTIME_SUSPEND,
 					       &wow_params);
@@ -1070,25 +1063,7 @@ QDF_STATUS pmo_core_psoc_bus_runtime_suspend(struct wlan_objmgr_psoc *psoc,
 		}
 	}
 
-	if (hif_pm_get_wake_irq_type(hif_ctx) == HIF_PM_CE_WAKE) {
-		/*
-		 * In moselle, there is no separate interrupt for wake_irq,
-		 * shares CE interrupt, there is a chance of wow wakeup
-		 * while suspend is in-progress, so handling such scenario
-		 */
-		hif_pm_runtime_suspend_lock(hif_ctx);
-		psoc_ctx = pmo_psoc_get_priv(psoc);
-		if (pmo_core_get_wow_initial_wake_up(psoc_ctx)) {
-			hif_pm_runtime_suspend_unlock(hif_ctx);
-			pmo_err("Target wake up received before suspend completion");
-			status = QDF_STATUS_E_BUSY;
-			goto resume_hif;
-		}
-		hif_process_runtime_suspend_success(hif_ctx);
-		hif_pm_runtime_suspend_unlock(hif_ctx);
-	} else {
-		hif_process_runtime_suspend_success(hif_ctx);
-	}
+	hif_process_runtime_suspend_success(hif_ctx);
 
 	goto dec_psoc_ref;
 
@@ -1106,20 +1081,13 @@ pmo_resume_configure:
 resume_htc:
 	PMO_CORE_PSOC_RUNTIME_PM_QDF_BUG(QDF_STATUS_SUCCESS !=
 		pmo_tgt_psoc_set_runtime_pm_inprogress(psoc, false));
+	PMO_CORE_PSOC_RUNTIME_PM_QDF_BUG(htc_runtime_resume(htc_ctx));
 
 cdp_runtime_resume:
 	PMO_CORE_PSOC_RUNTIME_PM_QDF_BUG(QDF_STATUS_SUCCESS !=
 		cdp_runtime_resume(dp_soc, pdev_id));
 
-/*
- * A race condition was observed where htc_try_send was called before
- * runtime pm state was set to active and it was not called again.
- * Schedule HTC queue kicker here to send the pending commands.
- */
 runtime_failure:
-	PMO_CORE_PSOC_RUNTIME_PM_QDF_BUG(htc_runtime_resume(htc_ctx));
-
-pre_runtime_failure:
 	hif_process_runtime_suspend_failure(hif_ctx);
 
 dec_psoc_ref:
@@ -1190,8 +1158,6 @@ QDF_STATUS pmo_core_psoc_bus_runtime_resume(struct wlan_objmgr_psoc *psoc,
 	if (status != QDF_STATUS_SUCCESS)
 		goto fail;
 
-	hif_pm_set_link_state(hif_ctx, HIF_PM_LINK_STATE_UP);
-
 	status = pmo_core_psoc_configure_resume(psoc, true);
 	if (status != QDF_STATUS_SUCCESS)
 		goto fail;
@@ -1259,14 +1225,13 @@ QDF_STATUS pmo_core_psoc_send_host_wakeup_ind_to_fw(
 		pmo_err("Pending commands %d credits %d",
 			pmo_tgt_psoc_get_pending_cmnds(psoc),
 			pmo_tgt_psoc_get_host_credits(psoc));
-
-		if (!psoc_ctx->wow.target_resume.force_set)
-			qdf_trigger_self_recovery(psoc, QDF_RESUME_TIMEOUT);
+		qdf_trigger_self_recovery(psoc, QDF_RESUME_TIMEOUT);
 	} else {
 		pmo_debug("Host wakeup received");
-		pmo_tgt_update_target_suspend_flag(psoc, false);
-		pmo_tgt_update_target_suspend_acked_flag(psoc, false);
 	}
+
+	if (status == QDF_STATUS_SUCCESS)
+		pmo_tgt_update_target_suspend_flag(psoc, false);
 out:
 	pmo_exit();
 
@@ -1332,13 +1297,13 @@ QDF_STATUS pmo_core_psoc_resume_target(struct wlan_objmgr_psoc *psoc,
 		pmo_fatal("Pending commands %d credits %d",
 			pmo_tgt_psoc_get_pending_cmnds(psoc),
 			pmo_tgt_psoc_get_host_credits(psoc));
-		if (!psoc_ctx->wow.target_resume.force_set)
-			qdf_trigger_self_recovery(psoc, QDF_RESUME_TIMEOUT);
+		qdf_trigger_self_recovery(psoc, QDF_RESUME_TIMEOUT);
 	} else {
 		pmo_debug("Host wakeup received");
-		pmo_tgt_update_target_suspend_flag(psoc, false);
-		pmo_tgt_update_target_suspend_acked_flag(psoc, false);
 	}
+
+	if (status == QDF_STATUS_SUCCESS)
+		pmo_tgt_update_target_suspend_flag(psoc, false);
 out:
 	pmo_exit();
 
@@ -1375,7 +1340,6 @@ QDF_STATUS pmo_core_psoc_bus_resume_req(struct wlan_objmgr_psoc *psoc,
 	/* If target was not suspended, bail out */
 	if (qdf_is_fw_down() || !pmo_tgt_is_target_suspended(psoc)) {
 		pmo_psoc_put_ref(psoc);
-		status = QDF_STATUS_E_AGAIN;
 		goto out;
 	}
 
@@ -1598,7 +1562,7 @@ QDF_STATUS pmo_core_config_listen_interval(struct wlan_objmgr_vdev *vdev,
 	}
 
 dec_ref:
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_PMO_ID);
+	pmo_vdev_put_ref(vdev);
 out:
 	pmo_exit();
 
@@ -1639,7 +1603,7 @@ QDF_STATUS pmo_core_config_modulated_dtim(struct wlan_objmgr_vdev *vdev,
 
 	if (!max_dtim) {
 		pmo_err("Invalid dtim period");
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_PMO_ID);
+		pmo_vdev_put_ref(vdev);
 		return QDF_STATUS_E_INVAL;
 	}
 
@@ -1688,7 +1652,7 @@ QDF_STATUS pmo_core_config_modulated_dtim(struct wlan_objmgr_vdev *vdev,
 		}
 	}
 
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_PMO_ID);
+	pmo_vdev_put_ref(vdev);
 out:
 	pmo_exit();
 	return status;

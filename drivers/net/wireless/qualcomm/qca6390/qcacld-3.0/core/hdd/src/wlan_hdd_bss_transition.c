@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -82,22 +82,6 @@ static int wlan_hdd_fill_btm_resp(struct sk_buff *reply_skb,
 	return 0;
 }
 
-const struct nla_policy
-btm_params_policy[QCA_WLAN_VENDOR_ATTR_MAX + 1] = {
-	[QCA_WLAN_VENDOR_ATTR_BTM_MBO_TRANSITION_REASON] = {
-						.type = NLA_U8},
-	[QCA_WLAN_VENDOR_ATTR_BTM_CANDIDATE_INFO] =
-			VENDOR_NLA_POLICY_NESTED(btm_cand_list_policy),
-};
-
-const struct nla_policy
-btm_cand_list_policy[QCA_WLAN_VENDOR_ATTR_BTM_CANDIDATE_INFO_MAX + 1]
-	= {[QCA_WLAN_VENDOR_ATTR_BTM_CANDIDATE_INFO_BSSID] = {
-					.len = QDF_MAC_ADDR_SIZE},
-	   [QCA_WLAN_VENDOR_ATTR_BTM_CANDIDATE_INFO_STATUS] = {
-						.type = NLA_U32},
-};
-
 /**
  * __wlan_hdd_cfg80211_fetch_bss_transition_status() - fetch bss transition
  * status
@@ -134,6 +118,21 @@ __wlan_hdd_cfg80211_fetch_bss_transition_status(struct wiphy *wiphy,
 	mac_handle_t mac_handle;
 	QDF_STATUS status;
 
+	const struct nla_policy
+	btm_params_policy[QCA_WLAN_VENDOR_ATTR_MAX + 1] = {
+		[QCA_WLAN_VENDOR_ATTR_BTM_MBO_TRANSITION_REASON] = {
+							.type = NLA_U8},
+		[QCA_WLAN_VENDOR_ATTR_BTM_CANDIDATE_INFO] = {
+							.type = NLA_NESTED},
+	};
+	const struct nla_policy
+	btm_cand_list_policy[QCA_WLAN_VENDOR_ATTR_BTM_CANDIDATE_INFO_MAX + 1]
+		= {[QCA_WLAN_VENDOR_ATTR_BTM_CANDIDATE_INFO_BSSID] = {
+						.len = QDF_MAC_ADDR_SIZE},
+		   [QCA_WLAN_VENDOR_ATTR_BTM_CANDIDATE_INFO_STATUS] = {
+							.type = NLA_U32},
+		};
+
 	hdd_enter();
 
 	if (hdd_get_conparam() == QDF_GLOBAL_FTM_MODE) {
@@ -146,7 +145,7 @@ __wlan_hdd_cfg80211_fetch_bss_transition_status(struct wiphy *wiphy,
 		return ret;
 
 	if (adapter->device_mode != QDF_STA_MODE ||
-	    !hdd_cm_is_vdev_associated(adapter)) {
+	    hdd_sta_ctx->conn_info.conn_state != eConnectionState_Associated) {
 		hdd_err("Command is either not invoked for STA mode (device mode: %d) or STA is not associated (Connection state: %d)",
 			adapter->device_mode, hdd_sta_ctx->conn_info.conn_state);
 		return -EINVAL;

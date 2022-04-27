@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -24,20 +24,13 @@
 #ifndef __CFG_MLME_QOS_H
 #define __CFG_MLME_QOS_H
 
-#if defined(QCA_WIFI_QCA6290) || defined(QCA_WIFI_QCA6390) || \
-	defined(QCA_WIFI_QCA6490) || defined(QCA_WIFI_QCA6750)
-#define ADDBA_TXAGGR_SIZE 256
-#else
-#define ADDBA_TXAGGR_SIZE 64
-#endif
-
 /*
  * <ini>
  * gTxAggregationSize - Gives an option to configure Tx aggregation size
  * in no of MPDUs
  * @Min: 0
- * @Max: ADDBA_TXAGGR_SIZE
- * @Default: ADDBA_TXAGGR_SIZE
+ * @Max: 64
+ * @Default: 64
  *
  * gTxAggregationSize gives an option to configure Tx aggregation size
  * in no of MPDUs.This can be useful in debugging throughput issues
@@ -46,15 +39,15 @@
  *
  * Supported Feature: STA
  *
- * Usage: External
+ * Usage: Internal/External
  *
  * </ini>
  */
 #define CFG_TX_AGGREGATION_SIZE CFG_INI_UINT( \
 			"gTxAggregationSize", \
 			0, \
-			ADDBA_TXAGGR_SIZE, \
-			ADDBA_TXAGGR_SIZE, \
+			64, \
+			64, \
 			CFG_VALUE_OR_DEFAULT, \
 			"Tx Aggregation size value")
 
@@ -63,7 +56,7 @@
  * gTxAggregationSizeBE - To configure Tx aggregation size for BE queue
  * in no of MPDUs
  * @Min: 0
- * @Max: ADDBA_TXAGGR_SIZE
+ * @Max: 64
  * @Default: 0
  *
  * gTxAggregationSizeBE gives an option to configure Tx aggregation size
@@ -81,7 +74,7 @@
 #define CFG_TX_AGGREGATION_SIZEBE CFG_INI_UINT( \
 			"gTxAggregationSizeBE", \
 			0, \
-			ADDBA_TXAGGR_SIZE, \
+			64, \
 			0, \
 			CFG_VALUE_OR_DEFAULT, \
 			"Tx Aggregation size value BE")
@@ -91,7 +84,7 @@
  * gTxAggregationSizeBK - To configure Tx aggregation size for BK queue
  * in no of MPDUs
  * @Min: 0
- * @Max: ADDBA_TXAGGR_SIZE
+ * @Max: 64
  * @Default: 0
  *
  * gTxAggregationSizeBK gives an option to configure Tx aggregation size
@@ -109,7 +102,7 @@
 #define CFG_TX_AGGREGATION_SIZEBK CFG_INI_UINT( \
 			"gTxAggregationSizeBK", \
 			0, \
-			ADDBA_TXAGGR_SIZE, \
+			64, \
 			0, \
 			CFG_VALUE_OR_DEFAULT, \
 			"Tx Aggregation size value BK")
@@ -119,7 +112,7 @@
  * gTxAggregationSizeVI - To configure Tx aggregation size for VI queue
  * in no of MPDUs
  * @Min: 0
- * @Max: ADDBA_TXAGGR_SIZE
+ * @Max: 64
  * @Default: 0
  *
  * gTxAggregationSizeVI gives an option to configure Tx aggregation size
@@ -137,7 +130,7 @@
 #define CFG_TX_AGGREGATION_SIZEVI CFG_INI_UINT( \
 			"gTxAggregationSizeVI", \
 			0, \
-			ADDBA_TXAGGR_SIZE, \
+			64, \
 			0, \
 			CFG_VALUE_OR_DEFAULT, \
 			"Tx Aggregation size value for VI")
@@ -147,7 +140,7 @@
  * gTxAggregationSizeVO - To configure Tx aggregation size for VO queue
  * in no of MPDUs
  * @Min: 0
- * @Max: ADDBA_TXAGGR_SIZE
+ * @Max: 64
  * @Default: 0
  *
  * gTxAggregationSizeVO gives an option to configure Tx aggregation size
@@ -165,7 +158,7 @@
 #define CFG_TX_AGGREGATION_SIZEVO CFG_INI_UINT( \
 			"gTxAggregationSizeVO", \
 			0, \
-			ADDBA_TXAGGR_SIZE, \
+			64, \
 			0, \
 			CFG_VALUE_OR_DEFAULT, \
 			"Tx Aggregation size value for VO")
@@ -185,7 +178,7 @@
  *
  * Supported Feature: STA
  *
- * Usage: External
+ * Usage: Internal/External
  *
  * </ini>
  */
@@ -197,27 +190,6 @@
 			CFG_VALUE_OR_DEFAULT, \
 			"Rx Aggregation size value")
 
-/*
- * <ini>
- * reject_addba_req - Configure Rx ADDBA Req reject for PEER AP
- * @Min: 0
- * @Max: 1
- * @Default: 0
- *
- * reject_addba_req gives an option to reject ADDBA Req from PEER AP
- *
- * Related: None
- *
- * Supported Feature: STA
- *
- * Usage: External
- *
- * </ini>
- */
-#define CFG_REJECT_ADDBA_REQ CFG_INI_BOOL( \
-			"reject_addba_req", \
-			0, \
-			"Addba Req Reject")
 /*
  * <ini>
  * gTxAggSwRetryBE - Configure Tx aggregation sw retry for BE
@@ -494,7 +466,7 @@
  *
  * Supported Feature: SAP
  *
- * Usage: External
+ * Usage: Internal/External
  * </ini>
  */
 #define CFG_SAP_MAX_INACTIVITY_OVERRIDE CFG_INI_BOOL( \
@@ -515,7 +487,7 @@
  *
  * Supported Feature: SAP
  *
- * Usage: External
+ * Usage: Internal/External
  *
  * </ini>
  */
@@ -523,51 +495,6 @@
 			"gEnableApUapsd", \
 			1, \
 			"Enable UAPSD for SAP")
-
-#define IOT_AGGR_INFO_MAX_LEN 500
-#define IOT_AGGR_INFO_MAX_NUM 32
-#define IOT_AGGR_MSDU_MAX_NUM 6
-#define IOT_AGGR_MPDU_MAX_NUM 512
-/*
- * <ini>
- * cfg_tx_iot_aggr - OUI based tx aggr size for msdu/mpdu
- *
- * This ini gives an option to configure Tx aggregation size
- * in no. of MPDUs/MSDUs for specified OUI.
- * This can be useful for IOT issues.
- *
- * Format of the configuration:
- * cfg_tx_iot_aggr=<OUI-1>,<MSDU-1>,<MPDU-1>,<OUI-2>,<MSDU-2>,<MPDU-2>...
- * MSDU: 0..IOT_AGGR_MSDU_MAX_NUM, the max tx aggregation size in no. of MSDUs,
- *       0 means not specified.
- * MPDU: 0..IOT_AGGR_MPDU_MAX_NUM, the max tx aggregation size in no. of MPDUs,
- *       0 means not specified.
- * Note: MSDU-x/MPDU-x are the max values, FW will take decision for actual
- *   AMSDU/AMPDU size on different platforms.
- *
- * For example:
- *   cfg_tx_iot_aggr=112233,2,0,445566,3,32,778899,0,64
- *   If vendor OUI-1("\x11\x22\x33") is found in assoc resp,
- *   set tx amsdu size to 2;
- *   If vendor OUI-2("\x44\x55\x66") is found in assoc resp,
- *   set tx amsdu size to 3, set tx ampdu size to 32;
- *   If vendor OUI-3("\x77\x88\x99") is found in assoc resp,
- *   set tx ampdu size to 64.
- *
- * Related: IOT
- *
- * Supported Feature: IOT
- *
- * Usage: External
- *
- * </ini>
- */
-#define CFG_TX_IOT_AGGR CFG_INI_STRING( \
-		"cfg_tx_iot_aggr", \
-		0, \
-		IOT_AGGR_INFO_MAX_LEN, \
-		"", \
-		"Used to configure OUI based tx aggr size for msdu/mpdu")
 
 #define CFG_QOS_ALL \
 	CFG(CFG_SAP_MAX_INACTIVITY_OVERRIDE) \
@@ -587,8 +514,6 @@
 	CFG(CFG_TX_NON_AGGR_SW_RETRY_VI) \
 	CFG(CFG_TX_NON_AGGR_SW_RETRY_VO) \
 	CFG(CFG_TX_NON_AGGR_SW_RETRY) \
-	CFG(CFG_SAP_QOS_UAPSD) \
-	CFG(CFG_TX_IOT_AGGR) \
-	CFG(CFG_REJECT_ADDBA_REQ)
+	CFG(CFG_SAP_QOS_UAPSD)
 
 #endif /* __CFG_MLME_QOS_H */

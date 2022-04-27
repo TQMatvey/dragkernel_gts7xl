@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -75,7 +75,6 @@ enum wlan_mlme_cfg_id {
 	WLAN_MLME_CFG_MAX_RATE,
 	WLAN_MLME_CFG_TX_MGMT_RATE,
 	WLAN_MLME_CFG_TX_MGMT_RATE_CODE,
-	WLAN_MLME_CFG_TX_RTSCTS_RATE,
 	WLAN_MLME_CFG_TX_CHAINMASK,
 	WLAN_MLME_CFG_RX_CHAINMASK,
 	WLAN_MLME_CFG_PKT_POWERSAVE,
@@ -104,10 +103,6 @@ enum wlan_mlme_cfg_id {
 	WLAN_MLME_CFG_RATEMASK_CAPS,
 	WLAN_MLME_CFG_ENABLE_MULTI_GROUP_KEY,
 	WLAN_MLME_CFG_MAX_GROUP_KEYS,
-	WLAN_MLME_CFG_TX_STREAMS,
-	WLAN_MLME_CFG_RX_STREAMS,
-	WLAN_MLME_CFG_ENABLE_DISABLE_RTT_RESPONDER_ROLE,
-	WLAN_MLME_CFG_ENABLE_DISABLE_RTT_INITIATOR_ROLE,
 	WLAN_MLME_CFG_MAX
 };
 
@@ -123,7 +118,7 @@ struct wlan_vdev_mgr_cfg {
 		uint32_t value;
 		uint64_t tsf;
 		uint8_t trans_bssid[QDF_MAC_ADDR_SIZE];
-		struct wlan_ssid ssid_cfg;
+		struct mlme_mac_ssid ssid_cfg;
 	};
 };
 

@@ -158,6 +158,7 @@ QDF_STATUS pmo_psoc_object_created_notification(
 
 	psoc_ctx = qdf_mem_malloc(sizeof(*psoc_ctx));
 	if (!psoc_ctx) {
+		pmo_err("Failed to allocate pmo_psoc");
 		status = QDF_STATUS_E_NOMEM;
 		goto out;
 	}
@@ -243,6 +244,7 @@ QDF_STATUS pmo_vdev_object_created_notification(
 
 	vdev_ctx = qdf_mem_malloc(sizeof(*vdev_ctx));
 	if (!vdev_ctx) {
+		pmo_err("Failed to allocate vdev_ctx");
 		status = QDF_STATUS_E_NOMEM;
 		goto out;
 	}
@@ -257,8 +259,6 @@ QDF_STATUS pmo_vdev_object_created_notification(
 	}
 
 	qdf_spinlock_create(&vdev_ctx->pmo_vdev_lock);
-	vdev_ctx->magic_ptrn_enable =
-		psoc_ctx->psoc_cfg.magic_ptrn_enable;
 	vdev_ctx->ptrn_match_enable =
 		psoc_ctx->psoc_cfg.ptrn_match_enable_all_vdev;
 	vdev_ctx->pmo_psoc_ctx = psoc_ctx;
@@ -284,7 +284,7 @@ QDF_STATUS pmo_vdev_ready(struct wlan_objmgr_vdev *vdev)
 	/* Register default wow patterns with firmware */
 	pmo_register_wow_default_patterns(vdev);
 
-	wlan_objmgr_vdev_release_ref(vdev, WLAN_PMO_ID);
+	pmo_vdev_put_ref(vdev);
 
 	/*
 	 * The above APIs should return a status but don't.

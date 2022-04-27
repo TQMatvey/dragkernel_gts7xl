@@ -28,24 +28,6 @@
 #include <wlan_cmn.h>
 #include <wlan_objmgr_vdev_obj.h>
 #include <wlan_objmgr_peer_obj.h>
-#include "wlan_cm_roam_public_struct.h"
-#include "wlan_wfa_config_public_struct.h"
-
-#define MAC_MAX_ADD_IE_LENGTH       2048
-
-/* QCN IE definitions */
-#define QCN_IE_HDR_LEN     6
-
-#define QCN_IE_VERSION_SUBATTR_ID        1
-#define QCN_IE_VERSION_SUBATTR_DATA_LEN  2
-#define QCN_IE_VERSION_SUBATTR_LEN       4
-#define QCN_IE_VERSION_SUPPORTED    1
-#define QCN_IE_SUBVERSION_SUPPORTED 0
-
-#define QCN_IE_ATTR_ID_VERSION 1
-#define QCN_IE_ATTR_ID_VHT_MCS11 2
-#define QCN_IE_ATTR_ID_ALL 0xFF
-
 
 #define mlme_legacy_fatal(params...) QDF_TRACE_FATAL(QDF_MODULE_ID_MLME, params)
 #define mlme_legacy_err(params...) QDF_TRACE_ERROR(QDF_MODULE_ID_MLME, params)
@@ -53,33 +35,12 @@
 #define mlme_legacy_info(params...) QDF_TRACE_INFO(QDF_MODULE_ID_MLME, params)
 #define mlme_legacy_debug(params...) QDF_TRACE_DEBUG(QDF_MODULE_ID_MLME, params)
 
-#define mlme_legacy_nofl_fatal(params...) QDF_TRACE_FATAL_NO_FL(QDF_MODULE_ID_MLME, params)
-#define mlme_legacy_nofl_err(params...) QDF_TRACE_ERROR_NO_FL(QDF_MODULE_ID_MLME, params)
-#define mlme_legacy_nofl_warn(params...) QDF_TRACE_WARN_NO_FL(QDF_MODULE_ID_MLME, params)
-#define mlme_legacy_nofl_info(params...) QDF_TRACE_INFO_NO_FL(QDF_MODULE_ID_MLME, params)
-#define mlme_legacy_nofl_debug(params...) QDF_TRACE_DEBUG_NO_FL(QDF_MODULE_ID_MLME, params)
-
-enum size_of_len_field {
-	ONE_BYTE = 1,
-	TWO_BYTE = 2
-};
-
-struct pwr_channel_info {
-	uint32_t first_freq;
-	uint8_t num_chan;
-	int8_t max_tx_pwr;
-};
-
 /**
  * struct wlan_mlme_psoc_ext_obj -MLME ext psoc priv object
  * @cfg:     cfg items
- * @rso_tx_ops: Roam Tx ops to send roam offload commands to firmware
- * @wfa_testcmd: WFA config tx ops to send to FW
  */
 struct wlan_mlme_psoc_ext_obj {
 	struct wlan_mlme_cfg cfg;
-	struct wlan_cm_roam_tx_ops rso_tx_ops;
-	struct wlan_mlme_wfa_cmd wfa_testcmd;
 };
 
 /**
@@ -88,12 +49,12 @@ struct wlan_mlme_psoc_ext_obj {
  *                   originated from driver
  * @peer_discon_ies: Disconnect IEs received in deauth/disassoc frames
  *                       from peer
- * @discon_reason: Disconnect reason as per enum wlan_reason_code
+ * @discon_reason: Disconnect reason as per enum eSirMacReasonCodes
  * @from_ap: True if the disconnection is initiated from AP
  */
 struct wlan_disconnect_info {
-	struct element_info self_discon_ies;
-	struct element_info peer_discon_ies;
+	struct wlan_ies self_discon_ies;
+	struct wlan_ies peer_discon_ies;
 	uint32_t discon_reason;
 	bool from_ap;
 };
@@ -105,7 +66,7 @@ struct wlan_disconnect_info {
  */
 struct sae_auth_retry {
 	uint8_t sae_auth_max_retry;
-	struct element_info sae_auth;
+	struct wlan_ies sae_auth;
 };
 
 /**
@@ -116,9 +77,6 @@ struct sae_auth_retry {
  * @is_pmf_enabled: True if PMF is enabled
  * @last_assoc_received_time: last assoc received time
  * @last_disassoc_deauth_received_time: last disassoc/deauth received time
- * @twt_ctx: TWT context
- * @allow_kickout: True if the peer can be kicked out. Peer can't be kicked
- *                 out if it is being steered
  */
 struct peer_mlme_priv_obj {
 	uint8_t last_pn_valid;
@@ -127,12 +85,6 @@ struct peer_mlme_priv_obj {
 	bool is_pmf_enabled;
 	qdf_time_t last_assoc_received_time;
 	qdf_time_t last_disassoc_deauth_received_time;
-#ifdef WLAN_SUPPORT_TWT
-	struct twt_context twt_ctx;
-#endif
-#ifdef WLAN_FEATURE_SON
-	bool allow_kickout;
-#endif
 };
 
 /**
@@ -186,115 +138,6 @@ struct wlan_mlme_roam {
 #endif
 };
 
-#ifdef WLAN_FEATURE_MSCS
-/**
- * struct tclas_mask - TCLAS Mask Elements for mscs request
- * @classifier_type: specifies the type of classifier parameters
- * in TCLAS element. Currently driver supports classifier type = 4 only.
- * @classifier_mask: Mask for tclas elements. For example, if
- * classifier type = 4, value of classifier mask is 0x5F.
- * @info: information of classifier type
- */
-struct tclas_mask {
-	uint8_t classifier_type;
-	uint8_t classifier_mask;
-	union {
-		struct {
-			uint8_t reserved[16];
-		} ip_param; /* classifier_type = 4 */
-	} info;
-};
-
-/**
- * enum scs_request_type - scs request type to peer
- * @SCS_REQ_ADD: To set mscs parameters
- * @SCS_REQ_REMOVE: Remove mscs parameters
- * @SCS_REQ_CHANGE: Update mscs parameters
- */
-enum scs_request_type {
-	SCS_REQ_ADD = 0,
-	SCS_REQ_REMOVE = 1,
-	SCS_REQ_CHANGE = 2,
-};
-
-/**
- * struct descriptor_element - mscs Descriptor element
- * @request_type: mscs request type defined in enum scs_request_type
- * @user_priority_control: To set user priority of tx packet
- * @stream_timeout: minimum timeout value, in TUs, for maintaining
- * variable user priority in the MSCS list.
- * @tclas_mask: to specify how incoming MSDUs are classified into
- * streams in MSCS
- * @status_code: status of mscs request
- */
-struct descriptor_element {
-	uint8_t request_type;
-	uint16_t user_priority_control;
-	uint64_t stream_timeout;
-	struct tclas_mask tclas_mask;
-	uint8_t status_code;
-};
-
-/**
- * struct mscs_req_info - mscs request information
- * @vdev_id: session id
- * @bssid: peer bssid
- * @dialog_token: Token number of mscs req action frame
- * @dec: mscs Descriptor element defines information about
- * the parameters used to classify streams
- * @is_mscs_req_sent: To Save mscs req request if any (only
- * one can be outstanding at any time)
- */
-struct mscs_req_info {
-	uint8_t vdev_id;
-	struct qdf_mac_addr bssid;
-	uint8_t dialog_token;
-	struct descriptor_element dec;
-	bool is_mscs_req_sent;
-};
-#endif
-
-struct ft_context {
-#ifdef WLAN_FEATURE_ROAM_OFFLOAD
-	uint32_t r0kh_id_len;
-	uint8_t r0kh_id[ROAM_R0KH_ID_MAX_LEN];
-#endif
-};
-
-/**
- * struct mlme_connect_info - mlme connect information
- * @timing_meas_cap: Timing meas cap
- * @oem_channel_info: oem channel info
- * @tdls_chan_swit_prohibited: if tdls chan switch is prohobited by AP
- * @tdls_prohibited: if tdls is prohobited by AP
- * @uapsd_per_ac_bitmask: Used on STA, this is a static UAPSD mask setting
- * derived from JOIN_REQ and REASSOC_REQ. If a particular AC bit is set, it
- * means the AC is both trigger enabled and delivery enabled.
- * @qos_enabled: is qos enabled
- * @is_wps is wps connection
- * @ft_info: ft related info
- * @hlp_ie: hldp ie
- * @hlp_ie_len: hlp ie length
- * @fils_con_info: Pointer to fils connection info from connect req
- */
-struct mlme_connect_info {
-	uint8_t timing_meas_cap;
-	struct oem_channel_info chan_info;
-#ifdef FEATURE_WLAN_TDLS
-	bool tdls_chan_swit_prohibited;
-	bool tdls_prohibited;
-#endif
-	uint8_t uapsd_per_ac_bitmask;
-	bool qos_enabled;
-	bool is_wps;
-	struct ft_context ft_info;
-#ifdef WLAN_FEATURE_FILS_SK
-	uint8_t *hlp_ie;
-	uint32_t hlp_ie_len;
-	struct wlan_fils_connection_info *fils_con_info;
-#endif
-};
-
 /**
  * struct mlme_legacy_priv - VDEV MLME legacy priv object
  * @chan_switch_in_progress: flag to indicate that channel switch is in progress
@@ -313,19 +156,7 @@ struct mlme_connect_info {
  * @disconnect_info: Disconnection information
  * @vdev_stop_type: vdev stop type request
  * @roam_off_state: Roam offload state
- * @cm_roam: Roaming configuration
- * @bigtk_vdev_support: BIGTK feature support for this vdev (SAP)
  * @sae_auth_retry: SAE auth retry information
- * @roam_reason_better_ap: roam due to better AP found
- * @hb_failure_rssi: heartbeat failure AP RSSI
- * @opr_rate_set: operational rates set
- * @ext_opr_rate_set: extended operational rates set
- * @mscs_req_info: Information related to mscs request
- * @he_config: he config
- * @he_sta_obsspd: he_sta_obsspd
- * @rso_cfg: per vdev RSO config to be sent to FW
- * @connect_info: mlme connect information
- * @max_mcs_index: Max supported mcs index of vdev
  */
 struct mlme_legacy_priv {
 	bool chan_switch_in_progress;
@@ -343,49 +174,11 @@ struct mlme_legacy_priv {
 	struct wlan_disconnect_info disconnect_info;
 	uint32_t vdev_stop_type;
 	struct wlan_mlme_roam mlme_roam;
-	struct wlan_cm_roam cm_roam;
-	bool bigtk_vdev_support;
 	struct sae_auth_retry sae_retry;
-	bool roam_reason_better_ap;
-	uint32_t hb_failure_rssi;
-	struct mlme_cfg_str opr_rate_set;
-	struct mlme_cfg_str ext_opr_rate_set;
-#ifdef WLAN_FEATURE_MSCS
-	struct mscs_req_info mscs_req_info;
-#endif
-#ifdef WLAN_FEATURE_11AX
-	tDot11fIEhe_cap he_config;
-	uint32_t he_sta_obsspd;
-#endif
-#ifndef FEATURE_CM_ENABLE
-	struct rso_config rso_cfg;
-#endif
-	struct mlme_connect_info connect_info;
-#ifdef WLAN_FEATURE_SON
-	uint8_t max_mcs_index;
-#endif
 };
 
 /**
- * struct del_bss_resp - params required for del bss response
- * @status: QDF status
- * @vdev_id: vdev_id
- */
-struct del_bss_resp {
-	QDF_STATUS status;
-	uint8_t vdev_id;
-};
-
-/**
- * mlme_init_rate_config() - initialize rate configuration of vdev
- * @vdev_mlme: pointer to vdev mlme object
- *
- * Return: Success or Failure status
- */
-QDF_STATUS mlme_init_rate_config(struct vdev_mlme_obj *vdev_mlme);
-
-/**
- * mlme_get_peer_mic_len() - get mic hdr len and mic length for peer
+ * wma_get_peer_mic_len() - get mic hdr len and mic length for peer
  * @psoc: psoc
  * @pdev_id: pdev id for the peer
  * @peer_mac: peer mac
@@ -445,15 +238,6 @@ struct wlan_mlme_nss_chains *mlme_get_dynamic_vdev_config(
 					struct wlan_objmgr_vdev *vdev);
 
 /**
- * mlme_get_vdev_he_ops()  - Get vdev HE operations IE info
- * @psoc: Pointer to PSOC object
- * @vdev_id: vdev id
- *
- * Return: HE ops IE
- */
-uint32_t mlme_get_vdev_he_ops(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id);
-
-/**
  * mlme_get_ini_vdev_config() - get the vdev ini config params
  * @vdev: vdev pointer
  *
@@ -471,16 +255,6 @@ struct wlan_mlme_nss_chains *mlme_get_ini_vdev_config(
 struct mlme_roam_after_data_stall *
 mlme_get_roam_invoke_params(struct wlan_objmgr_vdev *vdev);
 
-/**
- * mlme_is_roam_invoke_in_progress  - Get if roam invoked by host
- * is active.
- * @psoc: Pointer to global psoc.
- * @vdev_id: vdev id
- *
- * Return: True if roaming invoke is in progress
- */
-bool mlme_is_roam_invoke_in_progress(struct wlan_objmgr_psoc *psoc,
-				     uint8_t vdev_id);
 /**
  * mlme_cfg_on_psoc_enable() - Populate MLME structure from CFG and INI
  * @psoc: pointer to the psoc object
@@ -507,6 +281,16 @@ struct wlan_mlme_psoc_ext_obj *mlme_get_psoc_ext_obj_fl(struct wlan_objmgr_psoc
 							uint32_t line);
 
 /**
+ * mlme_init_ibss_cfg() - Init IBSS config data structure with default CFG value
+ * @psoc: pointer to the psoc object
+ * @ibss_cfg: Pointer to IBSS cfg data structure to return values
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS mlme_init_ibss_cfg(struct wlan_objmgr_psoc *psoc,
+			      struct wlan_mlme_ibss_cfg *ibss_cfg);
+
+/**
  * mlme_get_sae_auth_retry() - Get sae_auth_retry pointer
  * @vdev: vdev pointer
  *
@@ -530,7 +314,7 @@ void mlme_free_sae_auth_retry(struct wlan_objmgr_vdev *vdev);
  * Return: None
  */
 void mlme_set_self_disconnect_ies(struct wlan_objmgr_vdev *vdev,
-				  struct element_info *ie);
+				  struct wlan_ies *ie);
 
 /**
  * mlme_free_self_disconnect_ies() - Free the self diconnect IEs
@@ -546,7 +330,7 @@ void mlme_free_self_disconnect_ies(struct wlan_objmgr_vdev *vdev);
  *
  * Return: Returns a pointer to the self disconnect IEs present in vdev object
  */
-struct element_info *mlme_get_self_disconnect_ies(struct wlan_objmgr_vdev *vdev);
+struct wlan_ies *mlme_get_self_disconnect_ies(struct wlan_objmgr_vdev *vdev);
 
 /**
  * mlme_set_peer_disconnect_ies() - Cache disconnect IEs received from peer
@@ -556,7 +340,7 @@ struct element_info *mlme_get_self_disconnect_ies(struct wlan_objmgr_vdev *vdev)
  * Return: None
  */
 void mlme_set_peer_disconnect_ies(struct wlan_objmgr_vdev *vdev,
-				  struct element_info *ie);
+				  struct wlan_ies *ie);
 
 /**
  * mlme_free_peer_disconnect_ies() - Free the peer diconnect IEs
@@ -612,7 +396,7 @@ bool mlme_get_reconn_after_assoc_timeout_flag(struct wlan_objmgr_psoc *psoc,
  *
  * Return: Returns a pointer to the peer disconnect IEs present in vdev object
  */
-struct element_info *mlme_get_peer_disconnect_ies(struct wlan_objmgr_vdev *vdev);
+struct wlan_ies *mlme_get_peer_disconnect_ies(struct wlan_objmgr_vdev *vdev);
 
 /**
  * mlme_set_peer_pmf_status() - set pmf status of peer
@@ -665,114 +449,6 @@ void mlme_set_discon_reason_n_from_ap(struct wlan_objmgr_psoc *psoc,
 void mlme_get_discon_reason_n_from_ap(struct wlan_objmgr_psoc *psoc,
 				      uint8_t vdev_id, bool *from_ap,
 				      uint32_t *reason_code);
-
-bool wlan_is_wps_connection(struct wlan_objmgr_pdev *pdev,
-			    uint8_t vdev_id);
-
-/**
- * wlan_get_opmode_from_vdev_id() - Get opmode from vdevid
- * @psoc: PSOC pointer
- * @vdev_id: vdev id
- *
- * Return: opmode
- */
-enum QDF_OPMODE wlan_get_opmode_from_vdev_id(struct wlan_objmgr_pdev *pdev,
-					     uint8_t vdev_id);
-
-/**
- * wlan_mlme_get_ssid_vdev_id() - get ssid
- * @pdev: pdev object
- * @vdev_id: vdev id
- * @ssid: SSID
- * @ssid_len: Length of SSID
- *
- * API to get the SSID of vdev id, it updates the SSID and its length
- * in @ssid, @ssid_len respectively
- *
- * Return: SUCCESS, if update is done
- *          FAILURE, if ssid length is > max ssid len
- */
-QDF_STATUS wlan_mlme_get_ssid_vdev_id(struct wlan_objmgr_pdev *pdev,
-				      uint8_t vdev_id,
-				      uint8_t *ssid, uint8_t *ssid_len);
-
-/**
- * wlan_vdev_get_bss_peer_mac() - get bss peer mac address(BSSID) using vdev id
- * @pdev: pdev
- * @vdev_id: vdev_id
- * @bss_peer_mac: pointer to bss_peer_mac_address
- *
- * This API is used to get mac address of bss peer/bssid.
- *
- * Context: Any context.
- *
- * Return: QDF_STATUS based on overall success
- */
-QDF_STATUS wlan_mlme_get_bssid_vdev_id(struct wlan_objmgr_pdev *pdev,
-				       uint8_t vdev_id,
-				       struct qdf_mac_addr *bss_peer_mac);
-
-/**
- * csr_get_operation_chan_freq() - get operating chan freq of
- * given vdev
- * @vdev: vdev
- *
- * Return: chan freq of given vdev id
- */
-qdf_freq_t wlan_get_operation_chan_freq(struct wlan_objmgr_vdev *vdev);
-
-/**
- * wlan_get_operation_chan_freq_vdev_id() - get operating chan freq of
- * given vdev id
- * @pdev: Pointer to pdev
- * @vdev_id: vdev id
- *
- * Return: chan freq of given vdev id
- */
-qdf_freq_t wlan_get_operation_chan_freq_vdev_id(struct wlan_objmgr_pdev *pdev,
-						uint8_t vdev_id);
-
-QDF_STATUS
-wlan_get_op_chan_freq_info_vdev_id(struct wlan_objmgr_pdev *pdev,
-				   uint8_t vdev_id, qdf_freq_t *op_freq,
-				   qdf_freq_t *freq_seg_0,
-				   enum phy_ch_width *ch_width);
-
-/**
- * wlan_strip_ie() - strip requested IE from IE buffer
- * @addn_ie: Additional IE buffer
- * @addn_ielen: Length of additional IE
- * @eid: EID of IE to strip
- * @size_of_len_field: length of IE length field
- * @oui: if present matches OUI also
- * @oui_length: if previous present, this is length of oui
- * @extracted_ie: if not NULL, copy the stripped IE to this buffer
- *
- * This utility function is used to strip of the requested IE if present
- * in IE buffer.
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS wlan_strip_ie(uint8_t *addn_ie, uint16_t *addn_ielen,
-			 uint8_t eid, enum size_of_len_field size_of_len_field,
-			 uint8_t *oui, uint8_t oui_length,
-			 uint8_t *extracted_ie, uint32_t eid_max_len);
-
-/**
- * wlan_is_channel_present_in_list() - check if rfeq is present in the list
- * given vdev id
- * @freq_lst: given freq list
- * @num_chan: num of chan freq
- * @chan_freq: chan freq to check
- *
- * Return: chan freq of given vdev id
- */
-bool wlan_is_channel_present_in_list(qdf_freq_t *freq_lst,
-				     uint32_t num_chan, qdf_freq_t chan_freq);
-
-int8_t wlan_get_cfg_max_tx_power(struct wlan_objmgr_psoc *psoc,
-				 struct wlan_objmgr_pdev *pdev,
-				 uint32_t ch_freq);
 
 #if defined(WLAN_FEATURE_HOST_ROAM) || defined(WLAN_FEATURE_ROAM_OFFLOAD)
 /**
@@ -867,48 +543,46 @@ mlme_get_operations_bitmap(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id);
  * @reqs: RSO stop requestor
  * @clear: clear bit if true else set bit
  *
- * Return: None
+ * Return: bitmap value
  */
 void
 mlme_set_operations_bitmap(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id,
-			   enum wlan_cm_rso_control_requestor reqs, bool clear);
-/**
- * mlme_clear_operations_bitmap() - Clear mlme operations bitmap which
- *  indicates what mlme operations are in progress
- * @psoc: PSOC pointer
- * @vdev_id: vdev for which the mlme operation bitmap is requested
- *
- * Return: None
- */
-void
-mlme_clear_operations_bitmap(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id);
+			   enum roam_control_requestor reqs, bool clear);
 
-#define MLME_IS_ROAM_STATE_RSO_ENABLED(psoc, vdev_id) \
-	(mlme_get_roam_state(psoc, vdev_id) == WLAN_ROAM_RSO_ENABLED)
+/**
+ * mlme_get_cfg_wlm_level() - Get the WLM level value
+ * @psoc: pointer to psoc object
+ * @level: level that needs to be filled.
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS mlme_get_cfg_wlm_level(struct wlan_objmgr_psoc *psoc,
+				  uint8_t *level);
+
+/**
+ * mlme_get_cfg_wlm_reset() - Get the WLM reset flag
+ * @psoc: pointer to psoc object
+ * @reset: reset that needs to be filled.
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS mlme_get_cfg_wlm_reset(struct wlan_objmgr_psoc *psoc,
+				  bool *reset);
+
+#define MLME_IS_ROAM_STATE_RSO_STARTED(psoc, vdev_id) \
+	(mlme_get_roam_state(psoc, vdev_id) == ROAM_RSO_STARTED)
 
 #define MLME_IS_ROAM_STATE_DEINIT(psoc, vdev_id) \
-	(mlme_get_roam_state(psoc, vdev_id) == WLAN_ROAM_DEINIT)
+	(mlme_get_roam_state(psoc, vdev_id) == ROAM_DEINIT)
 
 #define MLME_IS_ROAM_STATE_INIT(psoc, vdev_id) \
-	(mlme_get_roam_state(psoc, vdev_id) == WLAN_ROAM_INIT)
+	(mlme_get_roam_state(psoc, vdev_id) == ROAM_INIT)
 
 #define MLME_IS_ROAM_STATE_STOPPED(psoc, vdev_id) \
-	(mlme_get_roam_state(psoc, vdev_id) == WLAN_ROAM_RSO_STOPPED)
+	(mlme_get_roam_state(psoc, vdev_id) == ROAM_RSO_STOPPED)
 
 #define MLME_IS_ROAM_INITIALIZED(psoc, vdev_id) \
-	(mlme_get_roam_state(psoc, vdev_id) >= WLAN_ROAM_INIT)
-#endif
-
-#ifdef WLAN_FEATURE_ROAM_OFFLOAD
-#define MLME_IS_ROAMING_IN_PROG(psoc, vdev_id) \
-	(mlme_get_roam_state(psoc, vdev_id) == WLAN_ROAMING_IN_PROG)
-
-#define MLME_IS_ROAM_SYNCH_IN_PROGRESS(psoc, vdev_id) \
-	(mlme_get_roam_state(psoc, vdev_id) == WLAN_ROAM_SYNCH_IN_PROG)
-
-#else
-#define MLME_IS_ROAMING_IN_PROG(psoc, vdev_id) (false)
-#define MLME_IS_ROAM_SYNCH_IN_PROGRESS(psoc, vdev_id) (false)
+	(mlme_get_roam_state(psoc, vdev_id) >= ROAM_INIT)
 #endif
 
 /**

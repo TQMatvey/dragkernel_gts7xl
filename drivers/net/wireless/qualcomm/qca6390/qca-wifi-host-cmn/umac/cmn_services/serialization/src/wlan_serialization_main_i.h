@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -79,21 +79,6 @@
 	QDF_TRACE_ERROR_RL(QDF_MODULE_ID_SERIALIZATION, params)
 #define ser_debug_rl(params...) \
 	QDF_TRACE_DEBUG_RL(QDF_MODULE_ID_SERIALIZATION, params)
-
-#define ser_debug_hex(ptr, size) \
-	qdf_trace_hex_dump(QDF_MODULE_ID_SERIALIZATION, \
-			   QDF_TRACE_LEVEL_DEBUG, ptr, size)
-
-#define ser_nofl_alert(params...) \
-	QDF_TRACE_FATAL_NO_FL(QDF_MODULE_ID_SERIALIZATION, params)
-#define ser_nofl_err(params...) \
-	QDF_TRACE_ERROR_NO_FL(QDF_MODULE_ID_SERIALIZATION, params)
-#define ser_nofl_warn(params...) \
-	QDF_TRACE_WARN_NO_FL(QDF_MODULE_ID_SERIALIZATION, params)
-#define ser_nofl_info(params...) \
-	QDF_TRACE_INFO_NO_FL(QDF_MODULE_ID_SERIALIZATION, params)
-#define ser_nofl_debug(params...) \
-	QDF_TRACE_DEBUG_NO_FL(QDF_MODULE_ID_SERIALIZATION, params)
 
 /**
  * struct serialization_legacy_callback - to handle legacy serialization cb
