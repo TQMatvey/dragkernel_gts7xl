@@ -7,6 +7,7 @@
 * Kali Nethunter Patches
 * RTL8812/14AU
 * RTL8188EUS (No Injection)
+* RTL88x2BU drivers (untested)
 * qcacld-3.0 WITH INTERNAL MONITOR MODE SUPPORT!!! 
 
 **GPU OC attempt successful to 683 MHz.**
