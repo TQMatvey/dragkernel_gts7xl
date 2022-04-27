@@ -5,7 +5,7 @@
 ## Features
 * all features from https://github.com/b1ad3runn3r/drag-kernel-t975
 * Kali Nethunter Patches
-* RTL8812/14AU (TESTED)
+* RTL8812/14AU
 * Latest qcacld-3.0 drivers 
 
 ## W.I.P
@@ -42,7 +42,7 @@ git clone --recurse-submodules https://github.com/TQMatvey/dragkernel_gts7xl && 
 chmod +x build_kernel.sh && ./build_kernel.sh
 ```
 ## Post-building
-Kernel gets packed into AnyKernel3 zip automatically. You don't need to do anything else
+Kernel gets packed into AnyKernel3 zip automatically, check releases/ folder
 
 ## Troubleshooting
 If your make task fails with "Permission denied", etc. and the failed file is a shell-script, use ```chmod +x script.sh```
