@@ -6,11 +6,12 @@
 * all features from https://github.com/b1ad3runn3r/drag-kernel-t975
 * Kali Nethunter Patches
 * RTL8812/14AU
-* Latest qcacld-3.0 drivers 
+* RTL8188EUS (No Injection)
+* qcacld-3.0 WITH INTERNAL MONITOR MODE SUPPORT!!! 
 
 ## W.I.P
-* Internal monitor mode (Partly works)
-* rtl8188eus
+* Improve Internal Monitor mode and write scripts for it
+* More wlan drivers (contact me with suggestions)
 
 **GPU OC attempt successful to 683 MHz.**
 
