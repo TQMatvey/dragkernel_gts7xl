@@ -9,11 +9,11 @@
 * RTL8188EUS (No Injection)
 * qcacld-3.0 WITH INTERNAL MONITOR MODE SUPPORT!!! 
 
+**GPU OC attempt successful to 683 MHz.**
+
 ## W.I.P
 * Improve Internal Monitor mode and write scripts for it
 * More wlan drivers (contact me with suggestions)
-
-**GPU OC attempt successful to 683 MHz.**
 
 ## Used sources and toolchains
 Kernel sources - [here](https://opensource.samsung.com/uploadSearch?searchValue=SM-T975)
