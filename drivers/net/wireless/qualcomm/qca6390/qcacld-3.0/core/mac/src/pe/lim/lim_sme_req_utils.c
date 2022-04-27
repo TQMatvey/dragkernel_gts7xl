@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -74,8 +74,10 @@ lim_is_rsn_ie_valid_in_sme_req_message(struct mac_context *mac_ctx,
 			       rsn_ie->length, privacy, val);
 	}
 
-	if (!rsn_ie->length)
+	if (!rsn_ie->length) {
+		pe_debug("RSN IE length is 0");
 		return true;
+	}
 
 	if ((rsn_ie->rsnIEdata[0] != DOT11F_EID_RSN)
 #ifdef FEATURE_WLAN_WAPI
@@ -368,8 +370,6 @@ bool lim_is_sme_start_bss_req_valid(struct mac_context *mac_ctx,
 			start_bss_req->bssType);
 		return false;
 		break;
-	case eSIR_IBSS_MODE:
-		break;
 	case eSIR_INFRA_AP_MODE:
 		break;
 	case eSIR_NDI_MODE:
@@ -381,13 +381,6 @@ bool lim_is_sme_start_bss_req_valid(struct mac_context *mac_ctx,
 		 */
 		pe_warn("Invalid bssType: %d in eWNI_SME_START_BSS_REQ",
 			start_bss_req->bssType);
-		return false;
-	}
-
-	if (start_bss_req->bssType == eSIR_IBSS_MODE
-	    && (!start_bss_req->ssId.length
-		|| start_bss_req->ssId.length > WLAN_SSID_MAX_LEN)) {
-		pe_warn("Invalid SSID length in eWNI_SME_START_BSS_REQ");
 		return false;
 	}
 
@@ -477,20 +470,6 @@ uint8_t lim_is_sme_join_req_valid(struct mac_context *mac,
 		/* / Received eWNI_SME_JOIN_REQ with invalid BSS Info */
 		/* Log the event */
 		pe_err("received SME_JOIN_REQ with invalid bssInfo");
-
-		valid = false;
-		goto end;
-	}
-
-	/*
-	   Reject Join Req if the Self Mac Address and
-	   the Ap's Mac Address is same
-	 */
-	if (!qdf_mem_cmp((uint8_t *)pJoinReq->self_mac_addr,
-			 (uint8_t *)pJoinReq->bssDescription.bssId,
-			 (uint8_t) (sizeof(tSirMacAddr)))) {
-		/* Log the event */
-		pe_err("received SME_JOIN_REQ with Self Mac and BSSID Same");
 
 		valid = false;
 		goto end;

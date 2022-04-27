@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
  * Copyright (c) 2002-2006, Atheros Communications Inc.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -28,7 +28,6 @@
 #include "wlan_dfs_tgt_api.h"
 #include "../dfs_internal.h"
 #include "../dfs_filter_init.h"
-#include "../dfs_full_offload.h"
 #include <wlan_objmgr_vdev_obj.h>
 #include "wlan_dfs_utils_api.h"
 #include "../dfs_process_radar_found_ind.h"
@@ -135,8 +134,8 @@ static os_timer_func(dfs_testtimer_task)
 	 * Flip the channel back to the original channel.
 	 * Make sure this is done properly with a CSA.
 	 */
-	dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS, "go back to channel %d",
-		 dfs->wlan_dfstest_ieeechan);
+	dfs_debug(dfs, WLAN_DEBUG_DFS_ALWAYS, "go back to channel %d",
+		  dfs->wlan_dfstest_ieeechan);
 	dfs_mlme_start_csa_for_freq(dfs->dfs_pdev_obj,
 				    dfs->wlan_dfstest_ieeechan,
 				    dfs->dfs_curchan->dfs_ch_freq,
@@ -156,8 +155,8 @@ static os_timer_func(dfs_testtimer_task)
 	 * Flip the channel back to the original channel.
 	 * Make sure this is done properly with a CSA.
 	 */
-	dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS, "go back to channel %d",
-			dfs->wlan_dfstest_ieeechan);
+	dfs_debug(dfs, WLAN_DEBUG_DFS_ALWAYS, "go back to channel %d",
+		  dfs->wlan_dfstest_ieeechan);
 	dfs_mlme_start_csa(dfs->dfs_pdev_obj,
 			dfs->wlan_dfstest_ieeechan,
 			dfs->dfs_curchan->dfs_ch_freq,
@@ -229,6 +228,7 @@ int dfs_attach(struct wlan_dfs *dfs)
 	dfs_cac_timer_attach(dfs);
 	dfs_zero_cac_attach(dfs);
 	dfs_nol_attach(dfs);
+	dfs_postnol_attach(dfs);
 
 	/*
 	 * Init of timer ,dfs_testtimer_task is required by both partial
@@ -335,12 +335,8 @@ bool dfs_get_disable_radar_marking(struct wlan_dfs *dfs)
 {
 	return dfs->dfs_disable_radar_marking;
 }
-#else
-static inline bool dfs_get_disable_radar_marking(struct wlan_dfs *dfs)
-{
-	return QDF_STATUS_SUCCESS;
-}
 #endif
+
 int dfs_control(struct wlan_dfs *dfs,
 		u_int id,
 		void *indata,
@@ -350,16 +346,12 @@ int dfs_control(struct wlan_dfs *dfs,
 {
 	struct wlan_dfs_phyerr_param peout;
 	struct dfs_ioctl_params *dfsparams;
-	struct dfs_bangradar_params *bangradar_params;
 	int error = 0;
 	uint32_t val = 0;
 	struct dfsreq_nolinfo *nol;
 	uint32_t *data = NULL;
 	int i;
-	struct dfs_emulate_bang_radar_test_cmd dfs_unit_test;
 	int usenol_pdev_param;
-
-	qdf_mem_zero(&dfs_unit_test, sizeof(dfs_unit_test));
 
 	if (!dfs) {
 		dfs_err(NULL, WLAN_DEBUG_DFS_ALWAYS,  "dfs is NULL");
@@ -406,70 +398,7 @@ int dfs_control(struct wlan_dfs *dfs,
 			error = -EINVAL;
 		break;
 	case DFS_BANGRADAR:
-		/*
-		 * Handle all types of Bangradar here.
-		 * Bangradar arguments:
-		 * seg_id      : Segment ID where radar should be injected.
-		 * is_chirp    : Is chirp radar or non chirp radar.
-		 * freq_offset : Frequency offset from center frequency.
-		 *
-		 * Type 1 (DFS_BANGRADAR_FOR_ALL_SUBCHANS): To add all subchans.
-		 * Type 2 (DFS_BANGRADAR_FOR_ALL_SUBCHANS_OF_SEGID): To add all
-		 *               subchans of given segment_id.
-		 * Type 3 (DFS_BANGRADAR_FOR_SPECIFIC_SUBCHANS): To add specific
-		 *               subchans based on the arguments.
-		 *
-		 * The arguments will already be filled in the indata structure
-		 * based on the type.
-		 * If an argument is not specified by user, it will be set to
-		 * default (0) in the indata already and correspondingly,
-		 * the type will change.
-		 */
-		if (insize < sizeof(struct dfs_bangradar_params) ||
-		    !indata) {
-			dfs_debug(dfs, WLAN_DEBUG_DFS1,
-				  "insize = %d, expected = %zu bytes, indata = %pK",
-				  insize,
-				  sizeof(struct dfs_bangradar_params),
-				  indata);
-			error = -EINVAL;
-			break;
-		}
-		bangradar_params = (struct dfs_bangradar_params *)indata;
-		if (bangradar_params) {
-			if (abs(bangradar_params->freq_offset) >
-			    FREQ_OFFSET_BOUNDARY_FOR_80MHZ) {
-				dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS,
-					 "Frequency Offset out of bound");
-				error = -EINVAL;
-				break;
-			} else if (bangradar_params->seg_id >
-				   SEG_ID_SECONDARY) {
-				dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS,
-					 "Illegal segment ID");
-				error = -EINVAL;
-				break;
-			}
-			dfs->dfs_bangradar_type =
-				bangradar_params->bangradar_type;
-			dfs->dfs_seg_id = bangradar_params->seg_id;
-			dfs->dfs_is_chirp = bangradar_params->is_chirp;
-			dfs->dfs_freq_offset = bangradar_params->freq_offset;
-
-			if (dfs->dfs_is_offload_enabled) {
-				error = dfs_fill_emulate_bang_radar_test
-							(dfs, dfs->dfs_seg_id,
-							 dfs->dfs_is_chirp,
-							 dfs->dfs_freq_offset,
-							 &dfs_unit_test);
-			} else {
-				error = dfs_start_host_based_bangradar(dfs);
-			}
-		} else {
-			dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS,
-				 "bangradar_params is NULL");
-		}
-
+		error = dfs_bang_radar(dfs, indata, insize);
 		break;
 	case DFS_GET_THRESH:
 		if (!outdata || !outsize ||
@@ -500,25 +429,25 @@ int dfs_control(struct wlan_dfs *dfs,
 		dfs->dfs_proc_phyerr &= ~DFS_RADAR_EN;
 		dfs->dfs_proc_phyerr &= ~DFS_SECOND_SEGMENT_RADAR_EN;
 		dfs->dfs_ignore_dfs = 1;
-		dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS,
-				"enable detects, ignore_dfs %d",
-				dfs->dfs_ignore_dfs ? 1:0);
+		dfs_debug(dfs, WLAN_DEBUG_DFS_ALWAYS,
+			  "enable detects, ignore_dfs %d",
+			  dfs->dfs_ignore_dfs ? 1 : 0);
 		break;
 	case DFS_ENABLE_DETECT:
 		dfs->dfs_proc_phyerr |= DFS_RADAR_EN;
 		dfs->dfs_proc_phyerr |= DFS_SECOND_SEGMENT_RADAR_EN;
 		dfs->dfs_ignore_dfs = 0;
-		dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS
-				, "enable detects, ignore_dfs %d",
-				dfs->dfs_ignore_dfs ? 1:0);
+		dfs_debug(dfs, WLAN_DEBUG_DFS_ALWAYS,
+			  "enable detects, ignore_dfs %d",
+			  dfs->dfs_ignore_dfs ? 1 : 0);
 		break;
 	case DFS_DISABLE_FFT:
-		dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS,
-				"TODO disable FFT val=0x%x", val);
+		dfs_debug(dfs, WLAN_DEBUG_DFS_ALWAYS,
+			  "TODO disable FFT val=0x%x", val);
 		break;
 	case DFS_ENABLE_FFT:
-		dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS,
-				"TODO enable FFT val=0x%x", val);
+		dfs_debug(dfs, WLAN_DEBUG_DFS_ALWAYS,
+			  "TODO enable FFT val=0x%x", val);
 		break;
 	case DFS_SET_DEBUG_LEVEL:
 		if (insize < sizeof(uint32_t) || !indata) {
@@ -533,8 +462,8 @@ int dfs_control(struct wlan_dfs *dfs,
 		 */
 		dfs->dfs_debug_mask &= ~(WLAN_DEBUG_DFS_ALWAYS);
 
-		dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS,
-				"debug level now = 0x%x", dfs->dfs_debug_mask);
+		dfs_debug(dfs, WLAN_DEBUG_DFS_ALWAYS,
+			  "debug level now = 0x%x", dfs->dfs_debug_mask);
 		if (dfs->dfs_debug_mask & WLAN_DEBUG_DFS3) {
 			/* Enable debug Radar Event */
 			dfs->dfs_event_log_on = 1;
@@ -552,9 +481,9 @@ int dfs_control(struct wlan_dfs *dfs,
 			break;
 		}
 		dfs->wlan_dfs_false_rssi_thres = *(uint32_t *)indata;
-		dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS,
-				"false RSSI threshold now = 0x%x",
-				dfs->wlan_dfs_false_rssi_thres);
+		dfs_debug(dfs, WLAN_DEBUG_DFS_ALWAYS,
+			  "false RSSI threshold now = 0x%x",
+			  dfs->wlan_dfs_false_rssi_thres);
 		break;
 	case DFS_SET_PEAK_MAG:
 		if (insize < sizeof(uint32_t) || !indata) {
@@ -562,8 +491,8 @@ int dfs_control(struct wlan_dfs *dfs,
 			break;
 		}
 		dfs->wlan_dfs_peak_mag = *(uint32_t *)indata;
-		dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS,
-				"peak_mag now = 0x%x",
+		dfs_debug(dfs, WLAN_DEBUG_DFS_ALWAYS,
+			  "peak_mag now = 0x%x",
 				dfs->wlan_dfs_peak_mag);
 		break;
 	case DFS_GET_CAC_VALID_TIME:
@@ -580,8 +509,8 @@ int dfs_control(struct wlan_dfs *dfs,
 			break;
 		}
 		dfs->dfs_cac_valid_time = *(uint32_t *)indata;
-		dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS,
-				"dfs timeout = %d", dfs->dfs_cac_valid_time);
+		dfs_debug(dfs, WLAN_DEBUG_DFS_ALWAYS,
+			  "dfs timeout = %d", dfs->dfs_cac_valid_time);
 		break;
 	case DFS_IGNORE_CAC:
 		if (insize < sizeof(uint32_t) || !indata) {
@@ -594,8 +523,8 @@ int dfs_control(struct wlan_dfs *dfs,
 		else
 			dfs->dfs_ignore_cac = 0;
 
-		dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS,
-				"ignore cac = 0x%x", dfs->dfs_ignore_cac);
+		dfs_debug(dfs, WLAN_DEBUG_DFS_ALWAYS,
+			  "ignore cac = 0x%x", dfs->dfs_ignore_cac);
 		break;
 	case DFS_SET_NOL_TIMEOUT:
 		if (insize < sizeof(uint32_t) || !indata) {
@@ -607,8 +536,8 @@ int dfs_control(struct wlan_dfs *dfs,
 		else
 			dfs->wlan_dfs_nol_timeout = DFS_NOL_TIMEOUT_S;
 
-		dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS, "nol timeout = %d sec",
-				dfs->wlan_dfs_nol_timeout);
+		dfs_debug(dfs, WLAN_DEBUG_DFS_ALWAYS, "nol timeout = %d sec",
+			  dfs->wlan_dfs_nol_timeout);
 		break;
 	case DFS_MUTE_TIME:
 		if (insize < sizeof(uint32_t) || !indata) {
@@ -627,43 +556,43 @@ int dfs_control(struct wlan_dfs *dfs,
 		*outsize = sizeof(uint32_t);
 		*((uint32_t *)outdata) = dfs->dfs_use_nol;
 
-		dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS,
-				"#Phyerr=%d, #false detect=%d, #queued=%d",
-				 dfs->dfs_phyerr_count,
-				dfs->dfs_phyerr_reject_count,
-				dfs->dfs_phyerr_queued_count);
+		dfs_debug(dfs, WLAN_DEBUG_DFS_ALWAYS,
+			  "#Phyerr=%d, #false detect=%d, #queued=%d",
+			  dfs->dfs_phyerr_count,
+			  dfs->dfs_phyerr_reject_count,
+			  dfs->dfs_phyerr_queued_count);
 
 		dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS,
-				"dfs_phyerr_freq_min=%d, dfs_phyerr_freq_max=%d",
-				 dfs->dfs_phyerr_freq_min,
-				dfs->dfs_phyerr_freq_max);
+			 "dfs_phyerr_freq_min=%d, dfs_phyerr_freq_max=%d",
+			 dfs->dfs_phyerr_freq_min,
+			 dfs->dfs_phyerr_freq_max);
 
 		dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS,
-				"Total radar events detected=%d, entries in the radar queue follows:",
-				 dfs->dfs_event_log_count);
+			 "Total radar events detected=%d, entries in the radar queue follows:",
+			 dfs->dfs_event_log_count);
 
 		for (i = 0; (i < DFS_EVENT_LOG_SIZE) &&
 				(i < dfs->dfs_event_log_count); i++) {
 #define FREQ_OFFSET1 ((int)dfs->radar_log[i].freq_offset_khz / 1000)
 #define FREQ_OFFSET2 ((int)abs(dfs->radar_log[i].freq_offset_khz) % 1000)
 			dfs_debug(dfs, WLAN_DEBUG_DFS,
-					"ts=%llu diff_ts=%u rssi=%u dur=%u, is_chirp=%d, seg_id=%d, sidx=%d, freq_offset=%d.%dMHz, peak_mag=%d, total_gain=%d, mb_gain=%d, relpwr_db=%d, delta_diff=%d, delta_peak=%d, psidx_diff=%d\n",
-					dfs->radar_log[i].ts,
-					dfs->radar_log[i].diff_ts,
-					dfs->radar_log[i].rssi,
-					dfs->radar_log[i].dur,
-					dfs->radar_log[i].is_chirp,
-					dfs->radar_log[i].seg_id,
-					dfs->radar_log[i].sidx,
-					FREQ_OFFSET1,
-					FREQ_OFFSET2,
-					dfs->radar_log[i].peak_mag,
-					dfs->radar_log[i].total_gain,
-					dfs->radar_log[i].mb_gain,
-					dfs->radar_log[i].relpwr_db,
-					dfs->radar_log[i].delta_diff,
-					dfs->radar_log[i].delta_peak,
-					dfs->radar_log[i].psidx_diff);
+				  "ts=%llu diff_ts=%u rssi=%u dur=%u, is_chirp=%d, seg_id=%d, sidx=%d, freq_offset=%d.%dMHz, peak_mag=%d, total_gain=%d, mb_gain=%d, relpwr_db=%d, delta_diff=%d, delta_peak=%d, psidx_diff=%d\n",
+				  dfs->radar_log[i].ts,
+				  dfs->radar_log[i].diff_ts,
+				  dfs->radar_log[i].rssi,
+				  dfs->radar_log[i].dur,
+				  dfs->radar_log[i].is_chirp,
+				  dfs->radar_log[i].seg_id,
+				  dfs->radar_log[i].sidx,
+				  FREQ_OFFSET1,
+				  FREQ_OFFSET2,
+				  dfs->radar_log[i].peak_mag,
+				  dfs->radar_log[i].total_gain,
+				  dfs->radar_log[i].mb_gain,
+				  dfs->radar_log[i].relpwr_db,
+				  dfs->radar_log[i].delta_diff,
+				  dfs->radar_log[i].delta_peak,
+				  dfs->radar_log[i].psidx_diff);
 		}
 		dfs->dfs_event_log_count = 0;
 		dfs->dfs_phyerr_count = 0;
@@ -860,9 +789,12 @@ void dfs_set_current_channel_for_freq(struct wlan_dfs *dfs,
 				      uint8_t dfs_chan_vhtop_freq_seg1,
 				      uint8_t dfs_chan_vhtop_freq_seg2,
 				      uint16_t dfs_chan_mhz_freq_seg1,
-				      uint16_t dfs_chan_mhz_freq_seg2)
-
+				      uint16_t dfs_chan_mhz_freq_seg2,
+				      bool *is_channel_updated)
 {
+	if (is_channel_updated)
+		*is_channel_updated = false;
+
 	if (!dfs) {
 		dfs_err(dfs, WLAN_DEBUG_DFS_ALWAYS,  "dfs is NULL");
 		return;
@@ -894,6 +826,9 @@ void dfs_set_current_channel_for_freq(struct wlan_dfs *dfs,
 	dfs->dfs_curchan->dfs_ch_vhtop_ch_freq_seg2 = dfs_chan_vhtop_freq_seg2;
 	dfs->dfs_curchan->dfs_ch_mhz_freq_seg1 = dfs_chan_mhz_freq_seg1;
 	dfs->dfs_curchan->dfs_ch_mhz_freq_seg2 = dfs_chan_mhz_freq_seg2;
+
+	if (is_channel_updated)
+		*is_channel_updated = true;
 }
 #endif
 
@@ -919,25 +854,42 @@ void dfs_reset_dfs_prevchan(struct wlan_dfs *dfs)
 	qdf_mem_zero(dfs->dfs_prevchan, sizeof(struct dfs_channel));
 }
 
-bool dfs_is_hw_mode_switch_in_progress(struct wlan_dfs *dfs)
+#ifdef WLAN_DFS_TRUE_160MHZ_SUPPORT
+bool dfs_is_true_160mhz_supported(struct wlan_dfs *dfs)
 {
-	return lmac_dfs_is_hw_mode_switch_in_progress(dfs->dfs_pdev_obj);
+	struct wlan_objmgr_psoc *psoc = dfs->dfs_soc_obj->psoc;
+	struct wlan_lmac_if_target_tx_ops *tgt_tx_ops;
+	struct wlan_lmac_if_tx_ops *tx_ops;
+	uint32_t target_type;
+
+	tx_ops = wlan_psoc_get_lmac_if_txops(psoc);
+	if (!tx_ops) {
+		 dfs_info(dfs, WLAN_DEBUG_DFS_ALWAYS, "tx_ops is NULL");
+		 return false;
+	}
+	target_type = lmac_get_target_type(dfs->dfs_pdev_obj);
+	tgt_tx_ops = &tx_ops->target_tx_ops;
+	if (tgt_tx_ops->tgt_is_tgt_type_qcn9000 &&
+	    tgt_tx_ops->tgt_is_tgt_type_qcn9000(target_type))
+		return true;
+
+	if (tgt_tx_ops->tgt_is_tgt_type_qcn6122 &&
+	    tgt_tx_ops->tgt_is_tgt_type_qcn6122(target_type))
+		return true;
+
+	return false;
 }
 
-void dfs_complete_deferred_tasks(struct wlan_dfs *dfs)
+bool dfs_is_restricted_80p80mhz_supported(struct wlan_dfs *dfs)
 {
-	if (dfs->dfs_defer_params.is_radar_detected) {
-		/* Handle radar event that was deferred and free the temporary
-		 * storage of the radar event parameters.
-		 */
-		dfs_process_radar_ind(dfs, dfs->dfs_defer_params.radar_params);
-		qdf_mem_free(dfs->dfs_defer_params.radar_params);
-		dfs->dfs_defer_params.is_radar_detected = false;
-	} else if (dfs->dfs_defer_params.is_cac_completed) {
-		/* Handle CAC completion event that was deferred for HW mode
-		 * switch.
-		 */
-		dfs_process_cac_completion(dfs);
-		dfs->dfs_defer_params.is_cac_completed = false;
-	}
+	return wlan_psoc_nif_fw_ext_cap_get(dfs->dfs_soc_obj->psoc,
+					    WLAN_SOC_RESTRICTED_80P80_SUPPORT);
 }
+#endif
+
+#ifdef QCA_SUPPORT_AGILE_DFS
+uint8_t dfs_get_agile_detector_id(struct wlan_dfs *dfs)
+{
+	return dfs->dfs_agile_detector_id;
+}
+#endif

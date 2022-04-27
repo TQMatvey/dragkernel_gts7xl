@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -165,10 +165,8 @@ static struct tdls_peer *tdls_add_peer(struct tdls_vdev_priv_obj *vdev_obj,
 	uint8_t reg_bw_offset;
 
 	peer = qdf_mem_malloc(sizeof(*peer));
-	if (!peer) {
-		tdls_err("add tdls peer malloc memory failed!");
+	if (!peer)
 		return NULL;
-	}
 
 	soc_obj = wlan_vdev_get_tdls_soc_obj(vdev_obj->vdev);
 	if (!soc_obj) {
@@ -477,7 +475,7 @@ void tdls_extract_peer_state_param(struct tdls_peer_update_state *peer_param,
 	enum channel_state ch_state;
 	struct wlan_objmgr_pdev *pdev;
 	uint8_t chan_id;
-	enum band_info cur_band = BAND_ALL;
+	uint32_t cur_band;
 	qdf_freq_t ch_freq;
 
 	vdev_obj = peer->vdev_priv;
@@ -513,7 +511,7 @@ void tdls_extract_peer_state_param(struct tdls_peer_update_state *peer_param,
 		return;
 	}
 
-	if (BAND_2G == cur_band) {
+	if (BIT(REG_BAND_2G) == cur_band) {
 		tdls_err("sending the offchannel value as 0 as only 2g is supported");
 		peer_param->peer_cap.pref_off_channum = 0;
 		peer_param->peer_cap.opclass_for_prefoffchan = 0;
@@ -532,7 +530,8 @@ void tdls_extract_peer_state_param(struct tdls_peer_update_state *peer_param,
 	num = 0;
 	for (i = 0; i < peer->supported_channels_len; i++) {
 		chan_id = peer->supported_channels[i];
-		ch_state = wlan_reg_get_channel_state(pdev, chan_id);
+		ch_freq = wlan_reg_legacy_chan_to_freq(pdev, chan_id);
+		ch_state = wlan_reg_get_channel_state_for_freq(pdev, ch_freq);
 
 		if (CHANNEL_STATE_INVALID != ch_state &&
 		    CHANNEL_STATE_DFS != ch_state &&

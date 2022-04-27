@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -67,6 +67,36 @@ extern bool is_hal_verbose_debug_enabled;
  */
 struct hal_soc_handle;
 typedef struct hal_soc_handle *hal_soc_handle_t;
+
+/**
+ * hal_ring_desc - opaque handle for DP ring descriptor
+ */
+struct hal_ring_desc;
+typedef struct hal_ring_desc *hal_ring_desc_t;
+
+/**
+ * hal_link_desc - opaque handle for DP link descriptor
+ */
+struct hal_link_desc;
+typedef struct hal_link_desc *hal_link_desc_t;
+
+/**
+ * hal_rxdma_desc - opaque handle for DP rxdma dst ring descriptor
+ */
+struct hal_rxdma_desc;
+typedef struct hal_rxdma_desc *hal_rxdma_desc_t;
+
+/**
+ * hal_buff_addrinfo - opaque handle for DP buffer address info
+ */
+struct hal_buff_addrinfo;
+typedef struct hal_buff_addrinfo *hal_buff_addrinfo_t;
+
+/**
+ * hal_rx_mon_desc_info - opaque handle for sw monitor ring desc info
+ */
+struct hal_rx_mon_desc_info;
+typedef struct hal_rx_mon_desc_info *hal_rx_mon_desc_info_t;
 
 /* TBD: This should be movded to shared HW header file */
 enum hal_srng_ring_id {
@@ -179,6 +209,7 @@ enum hal_srng_dir {
 #define hal_srng_lock_t qdf_spinlock_t
 #define SRNG_LOCK_INIT(_lock) qdf_spinlock_create(_lock)
 #define SRNG_LOCK(_lock) qdf_spin_lock_bh(_lock)
+#define SRNG_TRY_LOCK(_lock) qdf_spin_trylock_bh(_lock)
 #define SRNG_UNLOCK(_lock) qdf_spin_unlock_bh(_lock)
 #define SRNG_LOCK_DESTROY(_lock) qdf_spinlock_destroy(_lock)
 
@@ -440,8 +471,10 @@ struct hal_reo_params {
 	uint32_t remap2;
 	/** fragment destination ring */
 	uint8_t frag_dst_ring;
+	/* Destination for alternate */
+	uint8_t alt_dst_ind_0;
 	/** padding */
-	uint8_t padding[3];
+	uint8_t padding[2];
 };
 
 struct hal_hw_txrx_ops {
@@ -486,6 +519,8 @@ struct hal_hw_txrx_ops {
 	uint8_t (*hal_tx_comp_get_release_reason)(void *hal_desc);
 	uint8_t (*hal_get_wbm_internal_error)(void *hal_desc);
 	void (*hal_tx_desc_set_mesh_en)(void *desc, uint8_t en);
+	void (*hal_tx_init_cmd_credit_ring)(hal_soc_handle_t hal_soc_hdl,
+					    hal_ring_handle_t hal_ring_hdl);
 
 	/* rx */
 	uint32_t (*hal_rx_msdu_start_nss_get)(uint8_t *);
@@ -544,7 +579,8 @@ struct hal_hw_txrx_ops {
 	uint8_t (*hal_rx_get_mpdu_sequence_control_valid)(uint8_t *buf);
 	bool (*hal_rx_is_unicast)(uint8_t *buf);
 	uint32_t (*hal_rx_tid_get)(hal_soc_handle_t hal_soc_hdl, uint8_t *buf);
-	uint32_t (*hal_rx_hw_desc_get_ppduid_get)(void *hw_desc_addr);
+	uint32_t (*hal_rx_hw_desc_get_ppduid_get)(void *rx_tlv_hdr,
+						  void *rxdma_dst_ring_desc);
 	uint32_t (*hal_rx_mpdu_start_mpdu_qos_control_valid_get)(uint8_t *buf);
 	uint32_t (*hal_rx_msdu_end_sa_sw_peer_id_get)(uint8_t *buf);
 	void * (*hal_rx_msdu0_buffer_addr_lsb)(void *link_desc_addr);
@@ -582,6 +618,33 @@ struct hal_hw_txrx_ops {
 	bool (*hal_rx_get_fisa_flow_agg_continuation)(uint8_t *buf);
 	uint8_t (*hal_rx_get_fisa_flow_agg_count)(uint8_t *buf);
 	bool (*hal_rx_get_fisa_timeout)(uint8_t *buf);
+	uint8_t (*hal_rx_mpdu_start_tlv_tag_valid)(void *rx_tlv_hdr);
+	void (*hal_rx_sw_mon_desc_info_get)(hal_ring_desc_t rxdma_dst_ring_desc,
+					    hal_rx_mon_desc_info_t mon_desc_info);
+	uint8_t (*hal_rx_wbm_err_msdu_continuation_get)(void *ring_desc);
+	uint32_t (*hal_rx_msdu_end_offset_get)(void);
+	uint32_t (*hal_rx_attn_offset_get)(void);
+	uint32_t (*hal_rx_msdu_start_offset_get)(void);
+	uint32_t (*hal_rx_mpdu_start_offset_get)(void);
+	uint32_t (*hal_rx_mpdu_end_offset_get)(void);
+	uint32_t (*hal_rx_pkt_tlv_offset_get)(void);
+	void * (*hal_rx_flow_setup_fse)(uint8_t *rx_fst,
+					uint32_t table_offset,
+					uint8_t *rx_flow);
+	void (*hal_compute_reo_remap_ix2_ix3)(uint32_t *ring,
+					      uint32_t num_rings,
+					      uint32_t *remap1,
+					      uint32_t *remap2);
+	uint32_t (*hal_rx_flow_setup_cmem_fse)(
+				struct hal_soc *soc, uint32_t cmem_ba,
+				uint32_t table_offset, uint8_t *rx_flow);
+	uint32_t (*hal_rx_flow_get_cmem_fse_ts)(struct hal_soc *soc,
+						uint32_t fse_offset);
+	void (*hal_rx_flow_get_cmem_fse)(struct hal_soc *soc,
+					 uint32_t fse_offset,
+					 uint32_t *fse, qdf_size_t len);
+	void (*hal_rx_msdu_get_reo_destination_indication)(uint8_t *buf,
+							   uint32_t *reo_destination_indication);
 };
 
 /**
@@ -656,6 +719,8 @@ struct hal_soc {
 
 	/* Device base address */
 	void *dev_base_addr;
+	/* Device base address for ce - qca5018 target */
+	void *dev_base_addr_ce;
 
 	/* HAL internal state for all SRNG rings.
 	 * TODO: See if this is required

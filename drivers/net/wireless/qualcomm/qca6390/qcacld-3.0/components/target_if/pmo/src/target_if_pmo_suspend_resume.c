@@ -26,6 +26,8 @@
 #include "target_if.h"
 #include "target_if_pmo.h"
 #include "wmi_unified_api.h"
+#include "qdf_types.h"
+#include "pld_common.h"
 
 #define TGT_WILDCARD_PDEV_ID 0x0
 
@@ -199,6 +201,21 @@ void target_if_pmo_update_target_suspend_flag(struct wlan_objmgr_psoc *psoc,
 	wmi_set_target_suspend(wmi_handle, value);
 }
 
+void target_if_pmo_update_target_suspend_acked_flag(
+					struct wlan_objmgr_psoc *psoc,
+					uint8_t value)
+{
+	wmi_unified_t wmi_handle;
+
+	wmi_handle = get_wmi_unified_hdl_from_psoc(psoc);
+	if (!wmi_handle) {
+		target_if_err("Invalid wmi handle");
+		return;
+	}
+
+	wmi_set_target_suspend_acked(wmi_handle, value);
+}
+
 bool target_if_pmo_is_target_suspended(struct wlan_objmgr_psoc *psoc)
 {
 	wmi_unified_t wmi_handle;
@@ -275,6 +292,26 @@ bool target_if_pmo_get_runtime_pm_in_progress(
 	return wmi_get_runtime_pm_inprogress(wmi_handle);
 }
 
+#ifdef HOST_WAKEUP_OVER_QMI
+QDF_STATUS target_if_pmo_psoc_send_host_wakeup_ind(
+		struct wlan_objmgr_psoc *psoc)
+{
+	qdf_device_t qdf_dev;
+	int ret;
+
+	qdf_dev = wlan_psoc_get_qdf_dev(psoc);
+	if (!qdf_dev)
+		return QDF_STATUS_E_INVAL;
+
+	ret = pld_exit_power_save(qdf_dev->dev);
+	if (ret) {
+		target_if_err("Failed to exit power save, ret: %d", ret);
+		return qdf_status_from_os_return(ret);
+	}
+
+	return QDF_STATUS_SUCCESS;
+}
+#else
 QDF_STATUS target_if_pmo_psoc_send_host_wakeup_ind(
 		struct wlan_objmgr_psoc *psoc)
 {
@@ -288,6 +325,7 @@ QDF_STATUS target_if_pmo_psoc_send_host_wakeup_ind(
 
 	return wmi_unified_host_wakeup_ind_to_fw_cmd(wmi_handle);
 }
+#endif
 
 QDF_STATUS target_if_pmo_psoc_send_target_resume_req(
 		struct wlan_objmgr_psoc *psoc)

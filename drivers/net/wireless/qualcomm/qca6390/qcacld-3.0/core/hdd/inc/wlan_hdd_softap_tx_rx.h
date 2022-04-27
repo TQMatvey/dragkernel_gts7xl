@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2014-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -57,6 +58,7 @@ QDF_STATUS hdd_softap_ipa_start_xmit(qdf_nbuf_t nbuf, qdf_netdev_t dev);
 /**
  * hdd_softap_tx_timeout() - TX timeout handler
  * @dev: pointer to network device
+ * @txqueue: tx queue
  *
  * Function registered as a net_device .ndo_tx_timeout() method for
  * master mode interfaces (SoftAP/P2P GO), called by the OS if the
@@ -64,8 +66,11 @@ QDF_STATUS hdd_softap_ipa_start_xmit(qdf_nbuf_t nbuf, qdf_netdev_t dev);
  *
  * Return: None
  */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
+void hdd_softap_tx_timeout(struct net_device *dev, unsigned int txqueue);
+#else
 void hdd_softap_tx_timeout(struct net_device *dev);
-
+#endif
 /**
  * hdd_softap_init_tx_rx() - Initialize Tx/Rx module
  * @adapter: pointer to adapter context
@@ -124,15 +129,16 @@ QDF_STATUS hdd_softap_deregister_sta(struct hdd_adapter *adapter,
  * @auth_required: is additional authentication required?
  * @privacy_required: should 802.11 privacy bit be set?
  * @sta_mac: station MAC address
- * @wmm_enabled: is WMM enabled for this STA?
+ * @event: STA assoc complete event (Can be NULL)
  *
  * Return: QDF_STATUS_SUCCESS on success, QDF_STATUS_E_** on error
  */
-QDF_STATUS hdd_softap_register_sta(struct hdd_adapter *adapter,
-				   bool auth_required,
-				   bool privacy_required,
-				   struct qdf_mac_addr *sta_mac,
-				   bool wmm_enabled);
+QDF_STATUS
+hdd_softap_register_sta(struct hdd_adapter *adapter,
+			bool auth_required,
+			bool privacy_required,
+			struct qdf_mac_addr *sta_mac,
+			tSap_StationAssocReassocCompleteEvent *event);
 
 /**
  * hdd_softap_register_bc_sta() - Register the SoftAP broadcast STA
@@ -270,4 +276,31 @@ int hdd_softap_inspect_dhcp_packet(struct hdd_adapter *adapter,
  */
 void hdd_softap_check_wait_for_tx_eap_pkt(struct hdd_adapter *adapter,
 					  struct qdf_mac_addr *mac_addr);
+
+#ifdef FEATURE_WDS
+/**
+ * hdd_softap_ind_l2_update() - Send L2 update frame to bridge
+ * @adapter: pointer to adapter context
+ * @sta_mac: pointer to the MAC address of the station
+ *
+ * The layer-2 update frame is an 802.2 type LLC exchange identifier (XID)
+ * update response frame. This frame is sent using a MAC source address of
+ * the newly associated station. Upon the reception of this frame,
+ * all the layer-2 devices update their forwarding tables with the correct
+ * port to reach the new location of the station according to the ieee802.1d
+ * bridge table self learning procedure.
+ *
+ * Return: QDF_STATUS_E_FAILURE if any errors encountered,
+ *	   QDF_STATUS_SUCCESS otherwise
+ */
+QDF_STATUS hdd_softap_ind_l2_update(struct hdd_adapter *adapter,
+				    struct qdf_mac_addr *sta_mac);
+#else
+static inline
+QDF_STATUS hdd_softap_ind_l2_update(struct hdd_adapter *adapter,
+				    struct qdf_mac_addr *sta_mac)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
 #endif /* end #if !defined(WLAN_HDD_SOFTAP_TX_RX_H) */

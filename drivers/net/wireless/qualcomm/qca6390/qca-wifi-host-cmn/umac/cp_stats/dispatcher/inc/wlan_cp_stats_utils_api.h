@@ -34,8 +34,14 @@
 		QDF_TRACE_DEBUG(QDF_MODULE_ID_CP_STATS, ## args)
 #define cp_stats_err(args ...) \
 		QDF_TRACE_ERROR(QDF_MODULE_ID_CP_STATS, ## args)
+#define cp_stats_rl_err(args ...) \
+		QDF_TRACE_ERROR_RL(QDF_MODULE_ID_CP_STATS, ## args)
 #define cp_stats_nofl_debug(args ...) \
 		QDF_TRACE_DEBUG_NO_FL(QDF_MODULE_ID_CP_STATS, ## args)
+#define cp_stats_nofl_err(args ...) \
+		QDF_TRACE_ERROR_NO_FL(QDF_MODULE_ID_CP_STATS, ## args)
+#define cp_stats_nofl_rl_err(args ...) \
+		QDF_TRACE_ERROR_RL_NO_FL(QDF_MODULE_ID_CP_STATS, ## args)
 /**
  * enum wlan_cp_stats_cfg_state - State of Object configuration to
  * indicate whether object has to be attached/detached in cp stats

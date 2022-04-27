@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -202,6 +202,24 @@ QDF_STATUS rrm_set_max_tx_power_rsp(struct mac_context *mac,
 	return retCode;
 }
 
+/**
+ * rrm_calculate_and_fill_rcpi() - calculates and fills RCPI value
+ * @rcpi: pointer to hold calculated RCPI value
+ * @cur_rssi: value of current RSSI
+ *
+ * @return None
+ */
+static void rrm_calculate_and_fill_rcpi(uint8_t *rcpi, int8_t cur_rssi)
+{
+	/* 2008 11k spec reference: 18.4.8.5 RCPI Measurement */
+	if (cur_rssi <= RCPI_LOW_RSSI_VALUE)
+		*rcpi = 0;
+	else if ((cur_rssi > RCPI_LOW_RSSI_VALUE) && (cur_rssi <= 0))
+		*rcpi = CALCULATE_RCPI(cur_rssi);
+	else
+		*rcpi = RCPI_MAX_VALUE;
+}
+
 /* -------------------------------------------------------------------- */
 /**
  * rrm_process_link_measurement_request
@@ -241,7 +259,6 @@ rrm_process_link_measurement_request(struct mac_context *mac,
 
 	tx_pwr_attr.reg_max = pe_session->def_max_tx_pwr;
 	tx_pwr_attr.ap_tx_power = pLinkReq->MaxTxPower.maxTxPower;
-	tx_pwr_attr.ini_tx_power = mac->mlme_cfg->power.max_tx_power;
 
 	LinkReport.txPower = lim_get_max_tx_power(mac, &tx_pwr_attr);
 
@@ -274,14 +291,7 @@ rrm_process_link_measurement_request(struct mac_context *mac,
 
 	pe_info("Received Link report frame with %d", currentRSSI);
 
-	/* 2008 11k spec reference: 18.4.8.5 RCPI Measurement */
-	if ((currentRSSI) <= RCPI_LOW_RSSI_VALUE)
-		LinkReport.rcpi = 0;
-	else if ((currentRSSI > RCPI_LOW_RSSI_VALUE) && (currentRSSI <= 0))
-		LinkReport.rcpi = CALCULATE_RCPI(currentRSSI);
-	else
-		LinkReport.rcpi = RCPI_MAX_VALUE;
-
+	rrm_calculate_and_fill_rcpi(&LinkReport.rcpi, currentRSSI);
 	LinkReport.rsni = WMA_GET_RX_SNR(pRxPacketInfo);
 
 	pe_debug("Sending Link report frame");
@@ -588,6 +598,10 @@ rrm_process_beacon_report_req(struct mac_context *mac,
 		maxMeasduration =
 			pe_session->beaconParams.beaconInterval / maxDuration;
 
+	if( pBeaconReq->measurement_request.Beacon.meas_mode ==
+	   eSIR_PASSIVE_SCAN)
+		maxMeasduration += 10;
+
 	measDuration = pBeaconReq->measurement_request.Beacon.meas_duration;
 
 	pe_nofl_info("RX: [802.11 BCN_RPT] seq:%d SSID:%.*s BSSID:"QDF_MAC_ADDR_FMT" Token:%d op_class:%d ch:%d meas_mode:%d meas_duration:%d max_dur: %d sign: %d max_meas_dur: %d",
@@ -615,6 +629,9 @@ rrm_process_beacon_report_req(struct mac_context *mac,
 		} else
 			measDuration = maxMeasduration;
 	}
+
+	pe_debug("measurement duration %d", measDuration);
+
 	/* Cache the data required for sending report. */
 	pCurrentReq->request.Beacon.reportingDetail =
 		pBeaconReq->measurement_request.Beacon.BcnReportingDetail.
@@ -791,15 +808,15 @@ rrm_process_beacon_report_req(struct mac_context *mac,
  * Return: Remaining length of IEs in current bss_desc which are not included
  *	   in pIes.
  */
-static uint8_t
+static uint16_t
 rrm_fill_beacon_ies(struct mac_context *mac, uint8_t *pIes,
 		    uint8_t *pNumIes, uint8_t pIesMaxSize, uint8_t *eids,
-		    uint8_t numEids, uint8_t start_offset,
+		    uint8_t numEids, uint16_t start_offset,
 		    struct bss_description *bss_desc)
 {
 	uint8_t *pBcnIes, count = 0, i;
 	uint16_t BcnNumIes, total_ies_len, len;
-	uint8_t rem_len = 0;
+	uint16_t rem_len = 0;
 
 	if ((!pIes) || (!pNumIes) || (!bss_desc)) {
 		pe_err("Invalid parameters");
@@ -869,7 +886,8 @@ rrm_fill_beacon_ies(struct mac_context *mac, uint8_t *pIes,
 					 * break. For first fragment, account
 					 * for the fixed fields also.
 					 */
-					rem_len = total_ies_len - *pNumIes;
+					rem_len = total_ies_len - *pNumIes -
+						  start_offset;
 					if (start_offset == 0)
 						rem_len = rem_len +
 						BEACON_FRAME_IES_OFFSET;
@@ -913,12 +931,16 @@ rrm_process_beacon_report_xmit(struct mac_context *mac_ctx,
 	tpRRMReq curr_req;
 	struct pe_session *session_entry;
 	uint8_t session_id, counter;
-	uint8_t i, j, offset = 0;
+	uint8_t i, j;
 	uint8_t bss_desc_count = 0;
 	uint8_t report_index = 0;
-	uint8_t rem_len = 0;
+	uint16_t rem_len = 0;
+	uint16_t offset = 0;
 	uint8_t frag_id = 0;
 	uint8_t num_frames, num_reports_in_frame, final_measurement_index;
+	uint32_t populated_beacon_report_size = 0;
+	uint32_t max_reports_in_frame = 0;
+	uint32_t radio_meas_rpt_size = 0, dot11_meas_rpt_size = 0;
 	bool is_last_measurement_frame;
 
 
@@ -969,9 +991,7 @@ rrm_process_beacon_report_xmit(struct mac_context *mac_ctx,
 		}
 
 		report = qdf_mem_malloc(MAX_BEACON_REPORTS * sizeof(*report));
-
 		if (!report) {
-			pe_err("RRM Report is NULL, allocation failed");
 			status = QDF_STATUS_E_NOMEM;
 			goto end;
 		}
@@ -1014,7 +1034,9 @@ rrm_process_beacon_report_xmit(struct mac_context *mac_ctx,
 				beacon_report->phyType = bss_desc->nwType;
 				beacon_report->bcnProbeRsp = 1;
 				beacon_report->rsni = bss_desc->sinr;
-				beacon_report->rcpi = bss_desc->rssi;
+
+				rrm_calculate_and_fill_rcpi(&beacon_report->rcpi,
+							    bss_desc->rssi);
 				beacon_report->antennaId = 0;
 				beacon_report->parentTSF = bss_desc->parentTSF;
 				qdf_mem_copy(beacon_report->bssid,
@@ -1094,13 +1116,22 @@ rrm_process_beacon_report_xmit(struct mac_context *mac_ctx,
 		pe_debug("TX: [802.11 BCN_RPT] Total reports filled %d, last bcn_rpt ind:%d",
 			 i , curr_req->request.Beacon.last_beacon_report_indication);
 
-		num_frames = i / RADIO_REPORTS_MAX_IN_A_FRAME;
-		if (i % RADIO_REPORTS_MAX_IN_A_FRAME)
+		/* Calculate size of populated beacon reports */
+		radio_meas_rpt_size =  sizeof(tSirMacRadioMeasureReport);
+		populated_beacon_report_size = (i * radio_meas_rpt_size);
+
+		/* Calculate num of mgmt frames to send */
+		num_frames = populated_beacon_report_size / MAX_MGMT_MPDU_LEN;
+		if (populated_beacon_report_size % MAX_MGMT_MPDU_LEN)
 			num_frames++;
+
+		/* Calculate num of maximum mgmt reports per frame */
+		dot11_meas_rpt_size = sizeof(tDot11fRadioMeasurementReport);
+		max_reports_in_frame = MAX_MGMT_MPDU_LEN / dot11_meas_rpt_size;
 
 		for (j = 0; j < num_frames; j++) {
 			num_reports_in_frame = QDF_MIN((i - report_index),
-						RADIO_REPORTS_MAX_IN_A_FRAME);
+						max_reports_in_frame);
 
 			final_measurement_index =
 				mac_ctx->rrm.rrmPEContext.num_active_request;
@@ -1547,13 +1578,11 @@ void rrm_cleanup(struct mac_context *mac, uint8_t idx)
  *
  * Return: None
  */
-void lim_update_rrm_capability(struct mac_context *mac_ctx,
-			       struct join_req *join_req)
+void lim_update_rrm_capability(struct mac_context *mac_ctx)
 {
-	mac_ctx->rrm.rrmPEContext.rrmEnable = join_req->rrm_config.rrm_enabled;
+	mac_ctx->rrm.rrmPEContext.rrmEnable =
+				mac_ctx->rrm.rrmConfig.rrm_enabled;
 	qdf_mem_copy(&mac_ctx->rrm.rrmPEContext.rrmEnabledCaps,
-		     &join_req->rrm_config.rm_capability,
+		     &mac_ctx->rrm.rrmConfig.rm_capability,
 		     RMENABLEDCAP_MAX_LEN);
-
-	return;
 }

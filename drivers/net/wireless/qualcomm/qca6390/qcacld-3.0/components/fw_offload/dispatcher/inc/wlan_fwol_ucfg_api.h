@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -50,6 +50,22 @@ QDF_STATUS ucfg_fwol_psoc_open(struct wlan_objmgr_psoc *psoc);
 void ucfg_fwol_psoc_close(struct wlan_objmgr_psoc *psoc);
 
 /**
+ * ucfg_fwol_psoc_enable() - FWOL component enable
+ * @psoc: pointer to psoc object
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS ucfg_fwol_psoc_enable(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * ucfg_fwol_psoc_close() - FWOL component disable
+ * @psoc: pointer to psoc object
+ *
+ * Return: None
+ */
+void ucfg_fwol_psoc_disable(struct wlan_objmgr_psoc *psoc);
+
+/**
  * ucfg_fwol_init() - initialize fwol_ctx context.
  *
  * This function initializes the fwol context.
@@ -66,6 +82,66 @@ QDF_STATUS ucfg_fwol_init(void);
  * Return: QDF_STATUS_SUCCESS - in case of success else return error
  */
 void ucfg_fwol_deinit(void);
+
+#ifdef FW_THERMAL_THROTTLE_SUPPORT
+/**
+ * ucfg_fwol_thermal_register_callbacks() - Register thermal callbacks
+ * to be called by fwol thermal
+ * @psoc: psoc object
+ * @cb: callback functions
+ *
+ * Currently only one callback notify_thermal_throttle_handler can be
+ * registered to fwol thermal core. The client will be notified by the callback
+ * when new thermal throttle level is changed in target.
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS ucfg_fwol_thermal_register_callbacks(
+				struct wlan_objmgr_psoc *psoc,
+				struct fwol_thermal_callbacks *cb);
+
+/**
+ * ucfg_fwol_thermal_unregister_callbacks() - unregister thermal callbacks
+ * @psoc: psoc object
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS ucfg_fwol_thermal_unregister_callbacks(
+				struct wlan_objmgr_psoc *psoc);
+
+/**
+ * ucfg_fwol_thermal_get_target_level() - get thermal level based on cached
+ *  target thermal throttle level
+ * @psoc: psoc object
+ * @level: target thermal throttle level info
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+ucfg_fwol_thermal_get_target_level(struct wlan_objmgr_psoc *psoc,
+				   enum thermal_throttle_level *level);
+#else
+static inline QDF_STATUS ucfg_fwol_thermal_register_callbacks(
+				struct wlan_objmgr_psoc *psoc,
+				struct fwol_thermal_callbacks *cb)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline QDF_STATUS ucfg_fwol_thermal_unregister_callbacks(
+				struct wlan_objmgr_psoc *psoc)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline QDF_STATUS
+ucfg_fwol_thermal_get_target_level(struct wlan_objmgr_psoc *psoc,
+				   enum thermal_throttle_level *level)
+
+{
+	return QDF_STATUS_E_FAILURE;
+}
+#endif
 
 /**
  * ucfg_fwol_get_coex_config_params() - Get coex config params
@@ -88,18 +164,6 @@ ucfg_fwol_get_coex_config_params(struct wlan_objmgr_psoc *psoc,
 QDF_STATUS
 ucfg_fwol_get_thermal_temp(struct wlan_objmgr_psoc *psoc,
 			   struct wlan_fwol_thermal_temp *thermal_temp);
-
-/**
- * ucfg_fwol_get_neighbor_report_cfg() - Get neighbor report config params
- * @psoc: Pointer to psoc object
- * @fwol_neighbor_report_cfg: Pointer to return neighbor report config
- *
- * Return: QDF Status
- */
-QDF_STATUS
-ucfg_fwol_get_neighbor_report_cfg(struct wlan_objmgr_psoc *psoc,
-				  struct wlan_fwol_neighbor_report_cfg
-				  *fwol_neighbor_report_cfg);
 
 /**
  * ucfg_fwol_get_neighbor_report_req() - Get neighbor report request bit
@@ -267,7 +331,7 @@ QDF_STATUS ucfg_fwol_get_enable_fw_log_type(struct wlan_objmgr_psoc *psoc,
  * @enable_fw_module_log_level:
  * pointer to enable_fw_module_log_level array
  * @enable_fw_module_log_level_num:
- * pointer to enable_fw_module_log_leve array element num
+ * pointer to enable_fw_module_log_level array element num
  *
  * Return: QDF Status
  */
@@ -275,6 +339,23 @@ QDF_STATUS ucfg_fwol_get_enable_fw_module_log_level(
 				struct wlan_objmgr_psoc *psoc,
 				uint8_t **enable_fw_module_log_level,
 				uint8_t *enable_fw_module_log_level_num);
+
+/**
+ * ucfg_fwol_wow_get_enable_fw_module_log_level() - Assigns
+ * enable_fw_module_log_level string
+ *
+ * @psoc: pointer to the psoc object
+ * @enable_fw_wow_module_log_level:
+ * pointer to enable_fw_wow_module_log_level array
+ * @enable_fw_wow_module_log_level_num:
+ * pointer to enable_fw_wow_module_log_level array element num
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS ucfg_fwol_wow_get_enable_fw_module_log_level(
+				struct wlan_objmgr_psoc *psoc,
+				uint8_t **enable_fw_wow_module_log_level,
+				uint8_t *enable_fw_wow_module_log_level_num);
 
 /**
  * ucfg_fwol_get_sap_xlna_bypass() - Assigns sap_xlna_bypass value
@@ -574,6 +655,36 @@ QDF_STATUS ucfg_fwol_send_dscp_up_map_to_fw(
 	return QDF_STATUS_SUCCESS;
 }
 #endif
+
+/**
+ * ucfg_fwol_configure_global_params - API to configure global params
+ * @psoc: pointer to psoc object
+ * @pdev: pointer to pdev object
+ *
+ * Used to configure global firmware params. This is invoked from hdd during
+ * bootup.
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS ucfg_fwol_configure_global_params(struct wlan_objmgr_psoc *psoc,
+					     struct wlan_objmgr_pdev *pdev);
+
+/**
+ * ucfg_fwol_configure_vdev_params - API to configure vdev specific params
+ * @psoc: pointer to psoc object
+ * @pdev: pointer to pdev object
+ * @device_mode: device mode
+ * @vdev_id: vdev ID
+ *
+ * Used to configure per vdev firmware params based on device mode. This is
+ * invoked from hdd during vdev creation.
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS ucfg_fwol_configure_vdev_params(struct wlan_objmgr_psoc *psoc,
+					   struct wlan_objmgr_pdev *pdev,
+					   enum QDF_OPMODE device_mode,
+					   uint8_t vdev_id);
 #else
 static inline QDF_STATUS ucfg_fwol_psoc_open(struct wlan_objmgr_psoc *psoc)
 {
@@ -581,6 +692,15 @@ static inline QDF_STATUS ucfg_fwol_psoc_open(struct wlan_objmgr_psoc *psoc)
 }
 
 static inline void ucfg_fwol_psoc_close(struct wlan_objmgr_psoc *psoc)
+{
+}
+
+static inline QDF_STATUS ucfg_fwol_psoc_enable(struct wlan_objmgr_psoc *psoc)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline void ucfg_fwol_psoc_disable(struct wlan_objmgr_psoc *psoc)
 {
 }
 
@@ -593,6 +713,26 @@ static inline void ucfg_fwol_deinit(void)
 {
 }
 
+static inline QDF_STATUS ucfg_fwol_thermal_register_callbacks(
+				struct wlan_objmgr_psoc *psoc,
+				struct fwol_thermal_callbacks *cb)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline QDF_STATUS ucfg_fwol_thermal_unregister_callbacks(
+				struct wlan_objmgr_psoc *psoc)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline QDF_STATUS
+ucfg_fwol_thermal_get_target_level(struct wlan_objmgr_psoc *psoc,
+				   enum thermal_throttle_level *level)
+{
+	return QDF_STATUS_E_FAILURE;
+}
+
 static inline QDF_STATUS
 ucfg_fwol_get_coex_config_params(struct wlan_objmgr_psoc *psoc,
 				 struct wlan_fwol_coex_config *coex_config)
@@ -603,14 +743,6 @@ ucfg_fwol_get_coex_config_params(struct wlan_objmgr_psoc *psoc,
 static inline QDF_STATUS
 ucfg_fwol_get_thermal_temp(struct wlan_objmgr_psoc *psoc,
 			   struct wlan_fwol_thermal_temp *thermal_temp)
-{
-	return QDF_STATUS_E_FAILURE;
-}
-
-static inline QDF_STATUS
-ucfg_fwol_get_neighbor_report_cfg(struct wlan_objmgr_psoc *psoc,
-				  struct wlan_fwol_neighbor_report_cfg
-				  *fwol_neighbor_report_cfg)
 {
 	return QDF_STATUS_E_FAILURE;
 }
@@ -861,6 +993,21 @@ ucfg_fwol_get_is_rate_limit_enabled(struct wlan_objmgr_psoc *psoc,
 	return QDF_STATUS_E_FAILURE;
 }
 #endif /* FEATURE_WLAN_RA_FILTERING */
+
+static inline QDF_STATUS
+ucfg_fwol_configure_global_params(struct wlan_objmgr_psoc *psoc,
+				  struct wlan_objmgr_pdev *pdev)
+{
+	return QDF_STATUS_E_FAILURE;
+}
+
+static inline QDF_STATUS
+ucfg_fwol_configure_vdev_params(struct wlan_objmgr_psoc *psoc,
+				struct wlan_objmgr_pdev *pdev,
+				enum QDF_OPMODE device_mode, uint8_t vdev_id)
+{
+	return QDF_STATUS_E_FAILURE;
+}
 
 #endif /* WLAN_FW_OFFLOAD */
 

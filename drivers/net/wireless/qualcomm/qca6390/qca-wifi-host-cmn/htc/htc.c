@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -154,6 +154,9 @@ static void htc_cleanup(HTC_TARGET *target)
 	HTC_PACKET_QUEUE *pkt_queue;
 	qdf_nbuf_t netbuf;
 
+	while (htc_dec_return_runtime_cnt((void *)target) >= 0)
+		hif_pm_runtime_put(target->hif_dev, RTPM_ID_HTC);
+
 	if (target->hif_dev) {
 		hif_detach_htc(target->hif_dev);
 		hif_mask_interrupt_call(target->hif_dev);
@@ -271,9 +274,32 @@ static void htc_runtime_pm_deinit(HTC_TARGET *target)
 	qdf_destroy_work(0, &target->queue_kicker);
 }
 
+int32_t htc_dec_return_runtime_cnt(HTC_HANDLE htc)
+{
+	HTC_TARGET *target = GET_HTC_TARGET_FROM_HANDLE(htc);
+
+	return qdf_atomic_dec_return(&target->htc_runtime_cnt);
+}
+
+/**
+ * htc_init_runtime_cnt: Initialize htc runtime count
+ * @htc: HTC handle
+ *
+ * Return: None
+ */
+static inline
+void htc_init_runtime_cnt(HTC_TARGET *target)
+{
+	qdf_atomic_init(&target->htc_runtime_cnt);
+}
 #else
 static inline void htc_runtime_pm_init(HTC_TARGET *target) { }
 static inline void htc_runtime_pm_deinit(HTC_TARGET *target) { }
+
+static inline
+void htc_init_runtime_cnt(HTC_TARGET *target)
+{
+}
 #endif
 
 #if defined(DEBUG_HL_LOGGING) && defined(CONFIG_HL_SUPPORT)
@@ -378,6 +404,7 @@ HTC_HANDLE htc_create(void *ol_sc, struct htc_init_info *pInfo,
 	} while (false);
 
 	htc_recv_init(target);
+	htc_init_runtime_cnt(target);
 
 	HTC_TRACE("-htc_create: (0x%pK)", target);
 
@@ -730,6 +757,8 @@ static void reset_endpoint_states(HTC_TARGET *target)
 		INIT_HTC_PACKET_QUEUE(&pEndpoint->RxBufferHoldQueue);
 		pEndpoint->target = target;
 		pEndpoint->TxCreditFlowEnabled = (bool)htc_credit_flow;
+		pEndpoint->num_requeues_warn = 0;
+		pEndpoint->total_num_requeues = 0;
 		qdf_atomic_init(&pEndpoint->TxProcessCount);
 	}
 }
@@ -1145,7 +1174,7 @@ int htc_pm_runtime_get(HTC_HANDLE htc_handle)
 	HTC_TARGET *target = GET_HTC_TARGET_FROM_HANDLE(htc_handle);
 
 	return hif_pm_runtime_get(target->hif_dev,
-				  RTPM_ID_HTC);
+				  RTPM_ID_HTC, false);
 }
 
 int htc_pm_runtime_put(HTC_HANDLE htc_handle)

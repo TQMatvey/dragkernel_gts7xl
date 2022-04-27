@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
  *
  *
  * Permission to use, copy, modify, and/or distribute this software for
@@ -31,19 +31,28 @@
 #include "wni_api.h"
 #endif
 
+#if defined(QCA_DFS_RCSA_SUPPORT)
 void dfs_mlme_start_rcsa(struct wlan_objmgr_pdev *pdev,
 		bool *wait_for_csa)
 {
 	if (global_dfs_to_mlme.dfs_start_rcsa)
 		global_dfs_to_mlme.dfs_start_rcsa(pdev, wait_for_csa);
 }
+#endif
+
+#if defined(WLAN_DFS_PARTIAL_OFFLOAD) && defined(HOST_DFS_SPOOF_TEST)
+void dfs_mlme_proc_spoof_success(struct wlan_objmgr_pdev *pdev)
+{
+	if (global_dfs_to_mlme.mlme_proc_spoof_success)
+		global_dfs_to_mlme.mlme_proc_spoof_success(pdev);
+}
+#endif
 
 #ifndef QCA_MCL_DFS_SUPPORT
-#ifdef CONFIG_CHAN_NUM_API
 void dfs_mlme_mark_dfs(struct wlan_objmgr_pdev *pdev,
 		uint8_t ieee,
 		uint16_t freq,
-		uint8_t vhtop_ch_freq_seg2,
+		uint16_t vhtop_ch_freq_seg2,
 		uint64_t flags)
 {
 	if (global_dfs_to_mlme.mlme_mark_dfs)
@@ -53,24 +62,7 @@ void dfs_mlme_mark_dfs(struct wlan_objmgr_pdev *pdev,
 				vhtop_ch_freq_seg2,
 				flags);
 }
-#endif
-#ifdef CONFIG_CHAN_FREQ_API
-void dfs_mlme_mark_dfs_for_freq(struct wlan_objmgr_pdev *pdev,
-				uint8_t ieee,
-				uint16_t freq,
-				uint16_t vhtop_ch_freq_seg2,
-				uint64_t flags)
-{
-	if (global_dfs_to_mlme.mlme_mark_dfs_for_freq)
-	global_dfs_to_mlme.mlme_mark_dfs_for_freq(pdev,
-						  ieee,
-						  freq,
-						  vhtop_ch_freq_seg2,
-						  flags);
-}
-#endif
 #else /* Else of ndef MCL_DFS_SUPPORT */
-#ifdef CONFIG_CHAN_NUM_API
 static void dfs_send_radar_ind(struct wlan_objmgr_pdev *pdev,
 		void *object,
 		void *arg)
@@ -84,40 +76,14 @@ static void dfs_send_radar_ind(struct wlan_objmgr_pdev *pdev,
 	scheduler_post_message(QDF_MODULE_ID_DFS,
 			       QDF_MODULE_ID_SME,
 			       QDF_MODULE_ID_SME, &sme_msg);
-	dfs_info(NULL, WLAN_DEBUG_DFS_ALWAYS, "eWNI_SME_DFS_RADAR_FOUND pdev%d posted",
-		    vdev_id);
+	dfs_debug(NULL, WLAN_DEBUG_DFS_ALWAYS, "eWNI_SME_DFS_RADAR_FOUND pdev%d posted",
+		  vdev_id);
 }
-#endif
 
-/* dfs_send_radar_ind_for_freq() - Send radar found indication.
- * @pdev: Pointer to wlan_objmgr_pdev.
- * @object: Pointer to wlan_objmgr_vdev.
- * @arg : void pointer to args.
- */
-#ifdef CONFIG_CHAN_FREQ_API
-static void dfs_send_radar_ind_for_freq(struct wlan_objmgr_pdev *pdev,
-					void *object,
-					void *arg)
-{
-	struct scheduler_msg sme_msg = {0};
-	uint8_t vdev_id = wlan_vdev_get_id((struct wlan_objmgr_vdev *)object);
-
-	sme_msg.type = eWNI_SME_DFS_RADAR_FOUND;
-	sme_msg.bodyptr = NULL;
-	sme_msg.bodyval = vdev_id;
-	scheduler_post_message(QDF_MODULE_ID_DFS,
-			       QDF_MODULE_ID_SME,
-			       QDF_MODULE_ID_SME, &sme_msg);
-	dfs_info(NULL, WLAN_DEBUG_DFS_ALWAYS, "eWNI_SME_DFS_RADAR_FOUND pdev%d posted",
-		 vdev_id);
-}
-#endif
-
-#ifdef CONFIG_CHAN_NUM_API
 void dfs_mlme_mark_dfs(struct wlan_objmgr_pdev *pdev,
 		uint8_t ieee,
 		uint16_t freq,
-		uint8_t vhtop_ch_freq_seg2,
+		uint16_t vhtop_ch_freq_seg2,
 		uint64_t flags)
 {
 	struct wlan_objmgr_vdev *vdev;
@@ -134,30 +100,6 @@ void dfs_mlme_mark_dfs(struct wlan_objmgr_pdev *pdev,
 		wlan_objmgr_vdev_release_ref(vdev, WLAN_DFS_ID);
 	}
 }
-#endif
-
-#ifdef CONFIG_CHAN_FREQ_API
-void dfs_mlme_mark_dfs_for_freq(struct wlan_objmgr_pdev *pdev,
-				uint8_t ieee,
-				uint16_t freq,
-				uint16_t vhtop_ch_freq_seg2,
-				uint64_t flags)
-{
-	struct wlan_objmgr_vdev *vdev;
-
-	if (!pdev) {
-		dfs_err(NULL, WLAN_DEBUG_DFS_ALWAYS,  "null pdev");
-		return;
-	}
-
-	vdev = wlan_pdev_peek_active_first_vdev(pdev, WLAN_DFS_ID);
-
-	if (vdev) {
-		dfs_send_radar_ind_for_freq(pdev, vdev, NULL);
-		wlan_objmgr_vdev_release_ref(vdev, WLAN_DFS_ID);
-	}
-}
-#endif
 #endif
 
 #ifndef QCA_MCL_DFS_SUPPORT
@@ -560,26 +502,18 @@ void dfs_mlme_handle_dfs_scan_violation(struct wlan_objmgr_pdev *pdev)
 }
 #endif
 
+bool dfs_mlme_is_inter_band_chan_switch_allowed(struct wlan_objmgr_pdev *pdev)
+{
+	if (!global_dfs_to_mlme.mlme_is_inter_band_chan_switch_allowed)
+		return false;
+
+	return global_dfs_to_mlme.mlme_is_inter_band_chan_switch_allowed(pdev);
+}
+
 bool dfs_mlme_is_opmode_sta(struct wlan_objmgr_pdev *pdev)
 {
 	if (!global_dfs_to_mlme.mlme_is_opmode_sta)
 		return false;
 
 	return global_dfs_to_mlme.mlme_is_opmode_sta(pdev);
-}
-
-void dfs_mlme_acquire_radar_mode_switch_lock(struct wlan_objmgr_pdev *pdev)
-{
-	if (!global_dfs_to_mlme.mlme_acquire_radar_mode_switch_lock)
-		return;
-
-	global_dfs_to_mlme.mlme_acquire_radar_mode_switch_lock(pdev);
-}
-
-void dfs_mlme_release_radar_mode_switch_lock(struct wlan_objmgr_pdev *pdev)
-{
-	if (!global_dfs_to_mlme.mlme_release_radar_mode_switch_lock)
-		return;
-
-	global_dfs_to_mlme.mlme_release_radar_mode_switch_lock(pdev);
 }

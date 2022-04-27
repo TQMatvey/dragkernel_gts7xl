@@ -80,16 +80,11 @@ QDF_STATUS sch_send_beacon_req(struct mac_context *mac, uint8_t *beaconPayload,
 	qdf_mem_copy(beaconParams->bssId, pe_session->bssId,
 		     sizeof(pe_session->bssId));
 
-	if (LIM_IS_IBSS_ROLE(pe_session)) {
-		beaconParams->timIeOffset = 0;
-	} else {
-		beaconParams->timIeOffset = pe_session->schBeaconOffsetBegin;
-		if (pe_session->dfsIncludeChanSwIe) {
-			beaconParams->csa_count_offset =
-				mac->sch.csa_count_offset;
-			beaconParams->ecsa_count_offset =
-				mac->sch.ecsa_count_offset;
-		}
+
+	beaconParams->timIeOffset = pe_session->schBeaconOffsetBegin;
+	if (pe_session->dfsIncludeChanSwIe) {
+		beaconParams->csa_count_offset = mac->sch.csa_count_offset;
+		beaconParams->ecsa_count_offset = mac->sch.ecsa_count_offset;
 	}
 
 	beaconParams->vdev_id = pe_session->smeSessionId;
@@ -119,22 +114,6 @@ QDF_STATUS sch_send_beacon_req(struct mac_context *mac, uint8_t *beaconPayload,
 	beaconParams->beaconLength = (uint32_t) size;
 	msgQ.bodyptr = beaconParams;
 	msgQ.bodyval = 0;
-
-	/* Keep a copy of recent beacon frame sent */
-
-	/* free previous copy of the beacon */
-	if (pe_session->beacon) {
-		qdf_mem_free(pe_session->beacon);
-	}
-
-	pe_session->bcnLen = 0;
-	pe_session->beacon = NULL;
-
-	pe_session->beacon = qdf_mem_malloc(size);
-	if (pe_session->beacon) {
-		qdf_mem_copy(pe_session->beacon, beaconPayload, size);
-		pe_session->bcnLen = size;
-	}
 
 	MTRACE(mac_trace_msg_tx(mac, pe_session->peSessionId, msgQ.type));
 	retCode = wma_post_ctrl_msg(mac, &msgQ);
@@ -221,10 +200,8 @@ uint32_t lim_send_probe_rsp_template_to_hal(struct mac_context *mac,
 		*/
 		addIeWoP2pIe = qdf_mem_malloc(pe_session->add_ie_params.
 						probeRespDataLen);
-		if (!addIeWoP2pIe) {
-			pe_err("FAILED to alloc memory when removing P2P IE");
+		if (!addIeWoP2pIe)
 			return QDF_STATUS_E_NOMEM;
-		}
 
 		retStatus = lim_remove_p2p_ie_from_add_ie(mac, pe_session,
 					addIeWoP2pIe, &addnIELenWoP2pIe);
@@ -237,7 +214,6 @@ uint32_t lim_send_probe_rsp_template_to_hal(struct mac_context *mac,
 		/*need to check the data length */
 		addIE = qdf_mem_malloc(addnIELenWoP2pIe);
 		if (!addIE) {
-			pe_err("Unable to get WNI_CFG_PROBE_RSP_ADDNIE_DATA1 length");
 			qdf_mem_free(addIeWoP2pIe);
 			return QDF_STATUS_E_NOMEM;
 		}
@@ -404,10 +380,8 @@ int sch_gen_timing_advert_frame(struct mac_context *mac_ctx, tSirMacAddr self_ad
 
 	buf_size = sizeof(tSirMacMgmtHdr) + payload_size;
 	*buf = qdf_mem_malloc(buf_size);
-	if (!*buf) {
-		pe_err("Cannot allocate memory");
+	if (!*buf)
 		return QDF_STATUS_E_FAILURE;
-	}
 
 	payload_size = 0;
 	status = dot11f_pack_timing_advertisement_frame(mac_ctx, &frame,

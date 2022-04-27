@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -289,6 +289,9 @@ wlan_util_vdev_mlme_set_param(struct vdev_mlme_obj *vdev_mlme,
 	case WLAN_MLME_CFG_TX_MGMT_RATE:
 		mlme_mgmt->rate_info.tx_mgmt_rate = mlme_cfg.value;
 		break;
+	case WLAN_MLME_CFG_TX_RTSCTS_RATE:
+		mlme_mgmt->rate_info.rtscts_tx_rate = mlme_cfg.value;
+		break;
 	case WLAN_MLME_CFG_TX_CHAINMASK:
 		mlme_mgmt->chainmask_info.tx_chainmask = mlme_cfg.value;
 		break;
@@ -326,7 +329,7 @@ wlan_util_vdev_mlme_set_param(struct vdev_mlme_obj *vdev_mlme,
 	case WLAN_MLME_CFG_SSID:
 		if (mlme_cfg.ssid_cfg.length <= WLAN_SSID_MAX_LEN) {
 			qdf_mem_copy(mlme_mgmt->generic.ssid,
-				     mlme_cfg.ssid_cfg.mac_ssid,
+				     mlme_cfg.ssid_cfg.ssid,
 				     mlme_cfg.ssid_cfg.length);
 			mlme_mgmt->generic.ssid_len =
 						mlme_cfg.ssid_cfg.length;
@@ -387,6 +390,18 @@ wlan_util_vdev_mlme_set_param(struct vdev_mlme_obj *vdev_mlme,
 		is_wmi_cmd = true;
 		break;
 	case WLAN_MLME_CFG_MAX_GROUP_KEYS:
+		is_wmi_cmd = true;
+		break;
+	case WLAN_MLME_CFG_TX_STREAMS:
+		mlme_mgmt->chainmask_info.num_tx_chain = mlme_cfg.value;
+		break;
+	case WLAN_MLME_CFG_RX_STREAMS:
+		mlme_mgmt->chainmask_info.num_rx_chain = mlme_cfg.value;
+		break;
+	case WLAN_MLME_CFG_ENABLE_DISABLE_RTT_RESPONDER_ROLE:
+		is_wmi_cmd = true;
+		break;
+	case WLAN_MLME_CFG_ENABLE_DISABLE_RTT_INITIATOR_ROLE:
 		is_wmi_cmd = true;
 		break;
 	default:
@@ -533,6 +548,9 @@ void wlan_util_vdev_mlme_get_param(struct vdev_mlme_obj *vdev_mlme,
 	case WLAN_MLME_CFG_TX_MGMT_RATE:
 		*value = mlme_mgmt->rate_info.tx_mgmt_rate;
 		break;
+	case WLAN_MLME_CFG_TX_RTSCTS_RATE:
+		*value = mlme_mgmt->rate_info.rtscts_tx_rate;
+		break;
 	case WLAN_MLME_CFG_TX_CHAINMASK:
 		*value = mlme_mgmt->chainmask_info.tx_chainmask;
 		break;
@@ -568,6 +586,12 @@ void wlan_util_vdev_mlme_get_param(struct vdev_mlme_obj *vdev_mlme,
 		break;
 	case WLAN_MLME_CFG_BCN_TX_RATE:
 		*value = mlme_mgmt->rate_info.bcn_tx_rate;
+		break;
+	case WLAN_MLME_CFG_TX_STREAMS:
+		*value = mlme_mgmt->chainmask_info.num_tx_chain;
+		break;
+	case WLAN_MLME_CFG_RX_STREAMS:
+		*value = mlme_mgmt->chainmask_info.num_rx_chain;
 		break;
 	default:
 		break;

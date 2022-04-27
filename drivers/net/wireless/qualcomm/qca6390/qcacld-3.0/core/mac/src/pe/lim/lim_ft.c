@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -340,7 +340,7 @@ void lim_ft_prepare_add_bss_req(struct mac_context *mac,
 	pAddBssParams->staContext.smesessionId = ft_session->smeSessionId;
 
 	/* Set a new state for MLME */
-	if (!lim_is_roam_synch_in_progress(ft_session)) {
+	if (!lim_is_roam_synch_in_progress(mac->psoc, ft_session)) {
 		ft_session->limMlmState =
 			eLIM_MLM_WT_ADD_BSS_RSP_FT_REASSOC_STATE;
 		MTRACE(mac_trace
@@ -424,22 +424,32 @@ static uint8_t lim_calculate_dot11_mode(struct mac_context *mac_ctx,
 	case MLME_DOT11_MODE_ALL:
 		if (bcn->he_cap.present)
 			return MLME_DOT11_MODE_11AX;
-		else if (bcn->VHTCaps.present ||
-			 bcn->vendor_vht_ie.present)
+		else if ((bcn->VHTCaps.present ||
+			  bcn->vendor_vht_ie.present) &&
+			 (!(band == REG_BAND_2G &&
+			  !mac_ctx->mlme_cfg->vht_caps.vht_cap_info.b24ghz_band)
+			 ))
+
 			return MLME_DOT11_MODE_11AC;
 		else if (bcn->HTCaps.present)
 			return MLME_DOT11_MODE_11N;
+		/* fallthrough */
 	case MLME_DOT11_MODE_11AC:
 	case MLME_DOT11_MODE_11AC_ONLY:
-		if (bcn->VHTCaps.present ||
-		    bcn->vendor_vht_ie.present)
+		if ((bcn->VHTCaps.present ||
+		     bcn->vendor_vht_ie.present) &&
+		   (!(band == REG_BAND_2G &&
+		    !mac_ctx->mlme_cfg->vht_caps.vht_cap_info.b24ghz_band)
+		   ))
 			return MLME_DOT11_MODE_11AC;
 		else if (bcn->HTCaps.present)
 			return MLME_DOT11_MODE_11N;
+		/* fallthrough */
 	case MLME_DOT11_MODE_11N:
 	case MLME_DOT11_MODE_11N_ONLY:
 		if (bcn->HTCaps.present)
 			return MLME_DOT11_MODE_11N;
+		/* fallthrough */
 	default:
 			return new_dot11_mode;
 	}
@@ -466,7 +476,7 @@ static void lim_fill_dot11mode(struct mac_context *mac_ctx,
 			       enum wlan_phymode bss_phymode)
 {
 	if (pe_session->ftPEContext.pFTPreAuthReq &&
-	    !csr_is_roam_offload_enabled(mac_ctx)) {
+	    !wlan_is_roam_offload_enabled(mac_ctx->mlme_cfg->lfr)) {
 		ft_session->dot11mode =
 			pe_session->ftPEContext.pFTPreAuthReq->dot11mode;
 		return;
@@ -586,7 +596,7 @@ void lim_fill_ft_session(struct mac_context *mac,
 		lim_update_session_he_capable(mac, ft_session);
 
 	/* Assign default configured nss value in the new session */
-	if (wlan_reg_is_5ghz_ch_freq(ft_session->curr_op_freq))
+	if (!wlan_reg_is_24ghz_ch_freq(ft_session->curr_op_freq))
 		ft_session->vdev_nss = mac->vdev_type_nss_5g.sta;
 	else
 		ft_session->vdev_nss = mac->vdev_type_nss_2g.sta;
@@ -644,8 +654,12 @@ void lim_fill_ft_session(struct mac_context *mac,
 					PHY_DOUBLE_CHANNEL_HIGH_PRIMARY)
 				ft_session->ch_center_freq_seg0 =
 					bss_chan_id - 2;
-			else
+			else {
 				pe_warn("Invalid sec ch offset");
+				ft_session->ch_width = CH_WIDTH_20MHZ;
+				ft_session->ch_center_freq_seg0 = 0;
+				ft_session->ch_center_freq_seg1 = 0;
+			}
 		}
 	} else {
 		ft_session->ch_width = CH_WIDTH_20MHZ;
@@ -709,7 +723,6 @@ void lim_fill_ft_session(struct mac_context *mac,
 
 	tx_pwr_attr.reg_max = regMax;
 	tx_pwr_attr.ap_tx_power = localPowerConstraint;
-	tx_pwr_attr.ini_tx_power = mac->mlme_cfg->power.max_tx_power;
 	tx_pwr_attr.frequency = ft_session->curr_op_freq;
 
 #ifdef FEATURE_WLAN_ESE
@@ -718,11 +731,9 @@ void lim_fill_ft_session(struct mac_context *mac,
 	ft_session->maxTxPower = QDF_MIN(regMax, (localPowerConstraint));
 #endif
 
-	pe_debug("Reg max: %d local pwr: %d, ini tx pwr: %d max tx pwr: %d",
-		regMax, localPowerConstraint,
-		mac->mlme_cfg->power.max_tx_power,
-		ft_session->maxTxPower);
-	if (!lim_is_roam_synch_in_progress(pe_session)) {
+	pe_debug("Reg max: %d local pwr: %d, max tx pwr: %d", regMax,
+		 localPowerConstraint, ft_session->maxTxPower);
+	if (!lim_is_roam_synch_in_progress(mac->psoc, pe_session)) {
 		ft_session->limPrevSmeState = ft_session->limSmeState;
 		ft_session->limSmeState = eLIM_SME_WT_REASSOC_STATE;
 		MTRACE(mac_trace(mac,
@@ -780,10 +791,10 @@ lim_ft_send_aggr_qos_rsp(struct mac_context *mac, uint8_t rspReqd,
 		if ((1 << i) & aggrQosRsp->tspecIdx) {
 			if (QDF_IS_STATUS_SUCCESS(aggrQosRsp->status[i]))
 				rsp->aggrInfo.aggrRsp[i].status =
-					eSIR_MAC_SUCCESS_STATUS;
+					STATUS_SUCCESS;
 			else
 				rsp->aggrInfo.aggrRsp[i].status =
-					eSIR_MAC_UNSPEC_FAILURE_STATUS;
+					STATUS_UNSPECIFIED_FAILURE;
 			rsp->aggrInfo.aggrRsp[i].tspec = aggrQosRsp->tspec[i];
 		}
 	}
@@ -813,7 +824,7 @@ void lim_process_ft_aggr_qos_rsp(struct mac_context *mac,
 	pe_session =
 		pe_find_session_by_session_id(mac, pAggrQosRspMsg->sessionId);
 	if (!pe_session) {
-		pe_err("Cant find session entry for %s", __func__);
+		pe_err("Cant find session entry");
 		if (pAggrQosRspMsg) {
 			qdf_mem_free(pAggrQosRspMsg);
 		}

@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2014-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2021 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -28,21 +29,28 @@
 #include "qdf_mc_timer.h"
 #include "qdf_module.h"
 #include <qdf_trace.h>
-#include "qdf_atomic.h"
 #include "qdf_str.h"
 #include "qdf_talloc.h"
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 #include <linux/string.h>
+#include <qdf_list.h>
 
 #if IS_ENABLED(CONFIG_WCNSS_MEM_PRE_ALLOC)
 #include <net/cnss_prealloc.h>
+#endif
+
+#if defined(QCA_USE_CUSTOMIZED_DMA_MEM) || defined(WCNSS_DMA_PRE_ALLOC)
+#include <net/cnss2.h>
 #endif
 
 #if defined(MEMORY_DEBUG) || defined(NBUF_MEMORY_DEBUG)
 static bool mem_debug_disabled;
 qdf_declare_param(mem_debug_disabled, bool);
 qdf_export_symbol(mem_debug_disabled);
+#endif
+
+#ifdef MEMORY_DEBUG
 static bool is_initial_mem_debug_disabled;
 #endif
 
@@ -51,13 +59,49 @@ static bool is_initial_mem_debug_disabled;
 #define QDF_MEM_WARN_THRESHOLD 300 /* ms */
 #define QDF_DEBUG_STRING_SIZE 512
 
+/**
+ * struct __qdf_mem_stat - qdf memory statistics
+ * @kmalloc: total kmalloc allocations
+ * @dma: total dma allocations
+ * @skb: total skb allocations
+ * @skb_total: total skb allocations in host driver
+ * @dp_tx_skb: total Tx skb allocations in datapath
+ * @dp_rx_skb: total Rx skb allocations in datapath
+ * @skb_mem_max: high watermark for skb allocations
+ * @dp_tx_skb_mem_max: high watermark for Tx DP skb allocations
+ * @dp_rx_skb_mem_max: high watermark for Rx DP skb allocations
+ * @dp_tx_skb_count: DP Tx buffer count
+ * @dp_tx_skb_count_max: High watermark for DP Tx buffer count
+ * @dp_rx_skb_count: DP Rx buffer count
+ * @dp_rx_skb_count_max: High watermark for DP Rx buffer count
+ * @tx_descs_outstanding: Current pending Tx descs count
+ * @tx_descs_max: High watermark for pending Tx descs count
+ */
+static struct __qdf_mem_stat {
+	qdf_atomic_t kmalloc;
+	qdf_atomic_t dma;
+	qdf_atomic_t skb;
+	qdf_atomic_t skb_total;
+	qdf_atomic_t dp_tx_skb;
+	qdf_atomic_t dp_rx_skb;
+	int32_t skb_mem_max;
+	int32_t dp_tx_skb_mem_max;
+	int32_t dp_rx_skb_mem_max;
+	qdf_atomic_t dp_tx_skb_count;
+	int32_t dp_tx_skb_count_max;
+	qdf_atomic_t dp_rx_skb_count;
+	int32_t dp_rx_skb_count_max;
+	qdf_atomic_t tx_descs_outstanding;
+	int32_t tx_descs_max;
+} qdf_mem_stat;
+
 #ifdef MEMORY_DEBUG
 #include "qdf_debug_domain.h"
-#include <qdf_list.h>
 
 enum list_type {
 	LIST_TYPE_MEM = 0,
 	LIST_TYPE_DMA = 1,
+	LIST_TYPE_NBUF = 2,
 	LIST_TYPE_MAX,
 };
 
@@ -72,20 +116,6 @@ enum list_type {
 struct major_alloc_priv {
 	enum list_type type;
 	uint32_t threshold;
-};
-
-static struct major_alloc_priv mem_priv = {
-	/* List type set to mem */
-	LIST_TYPE_MEM,
-	/* initial threshold to list APIs which allocates mem >= 50 times */
-	50
-};
-
-static struct major_alloc_priv dma_priv = {
-	/* List type set to DMA */
-	LIST_TYPE_DMA,
-	/* initial threshold to list APIs which allocates dma >= 50 times */
-	50
 };
 
 static qdf_list_t qdf_mem_domains[QDF_DEBUG_DOMAIN_COUNT];
@@ -279,83 +309,6 @@ qdf_mem_header_assert_valid(struct qdf_mem_header *header,
 
 	QDF_MEMDEBUG_PANIC("Fatal memory error detected @ %s:%d", func, line);
 }
-#endif /* MEMORY_DEBUG */
-
-u_int8_t prealloc_disabled = 1;
-qdf_declare_param(prealloc_disabled, byte);
-qdf_export_symbol(prealloc_disabled);
-
-#if defined WLAN_DEBUGFS
-
-/* Debugfs root directory for qdf_mem */
-static struct dentry *qdf_mem_debugfs_root;
-
-/**
- * struct __qdf_mem_stat - qdf memory statistics
- * @kmalloc:	total kmalloc allocations
- * @dma:	total dma allocations
- * @skb:	total skb allocations
- */
-static struct __qdf_mem_stat {
-	qdf_atomic_t kmalloc;
-	qdf_atomic_t dma;
-	qdf_atomic_t skb;
-} qdf_mem_stat;
-
-void qdf_mem_kmalloc_inc(qdf_size_t size)
-{
-	qdf_atomic_add(size, &qdf_mem_stat.kmalloc);
-}
-
-static void qdf_mem_dma_inc(qdf_size_t size)
-{
-	qdf_atomic_add(size, &qdf_mem_stat.dma);
-}
-
-void qdf_mem_skb_inc(qdf_size_t size)
-{
-	qdf_atomic_add(size, &qdf_mem_stat.skb);
-}
-
-void qdf_mem_kmalloc_dec(qdf_size_t size)
-{
-	qdf_atomic_sub(size, &qdf_mem_stat.kmalloc);
-}
-
-static inline void qdf_mem_dma_dec(qdf_size_t size)
-{
-	qdf_atomic_sub(size, &qdf_mem_stat.dma);
-}
-
-void qdf_mem_skb_dec(qdf_size_t size)
-{
-	qdf_atomic_sub(size, &qdf_mem_stat.skb);
-}
-
-#ifdef MEMORY_DEBUG
-static int qdf_err_printer(void *priv, const char *fmt, ...)
-{
-	va_list args;
-
-	va_start(args, fmt);
-	QDF_VTRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR, (char *)fmt, args);
-	va_end(args);
-
-	return 0;
-}
-
-static int seq_printf_printer(void *priv, const char *fmt, ...)
-{
-	struct seq_file *file = priv;
-	va_list args;
-
-	va_start(args, fmt);
-	seq_vprintf(file, fmt, args);
-	seq_puts(file, "\n");
-	va_end(args);
-
-	return 0;
-}
 
 /**
  * struct __qdf_mem_info - memory statistics
@@ -402,81 +355,6 @@ static void qdf_mem_debug_print_header(qdf_abstract_print print,
 	      " count    size     total    filename     caller    timestamp");
 	print(print_priv,
 	      "--------------------------------------------------------------");
-}
-
-/**
- * qdf_mem_meta_table_print() - memory metadata table print logic
- * @table: the memory metadata table to print
- * @print: the print adapter function
- * @print_priv: the private data to be consumed by @print
- * @threshold: the threshold value set by user to list top allocations
- *
- * Return: None
- */
-static void qdf_mem_meta_table_print(struct __qdf_mem_info *table,
-				     qdf_abstract_print print,
-				     void *print_priv,
-				     uint32_t threshold)
-{
-	int i;
-	char debug_str[QDF_DEBUG_STRING_SIZE];
-	size_t len = 0;
-	char *debug_prefix = "WLAN_BUG_RCA: memory leak detected";
-
-	len += qdf_scnprintf(debug_str, sizeof(debug_str) - len,
-			     "%s", debug_prefix);
-
-	for (i = 0; i < QDF_MEM_STAT_TABLE_SIZE; i++) {
-		if (!table[i].count)
-			break;
-
-		print(print_priv,
-		      "%6u x %5u = %7uB @ %s:%u   %pS %llu",
-		      table[i].count,
-		      table[i].size,
-		      table[i].count * table[i].size,
-		      table[i].func,
-		      table[i].line, table[i].caller,
-		      table[i].time);
-		len += qdf_scnprintf(debug_str + len,
-				     sizeof(debug_str) - len,
-				     " @ %s:%u %pS",
-				     table[i].func,
-				     table[i].line,
-				     table[i].caller);
-	}
-	print(print_priv, "%s", debug_str);
-}
-
-/**
- * qdf_print_major_alloc() - memory metadata table print logic
- * @table: the memory metadata table to print
- * @print: the print adapter function
- * @print_priv: the private data to be consumed by @print
- * @threshold: the threshold value set by uset to list top allocations
- *
- * Return: None
- */
-static void qdf_print_major_alloc(struct __qdf_mem_info *table,
-				  qdf_abstract_print print,
-				  void *print_priv,
-				  uint32_t threshold)
-{
-	int i;
-
-	for (i = 0; i < QDF_MEM_STAT_TABLE_SIZE; i++) {
-		if (!table[i].count)
-			break;
-		if (table[i].count >= threshold)
-			print(print_priv,
-			      "%6u x %5u = %7uB @ %s:%u   %pS %llu",
-			      table[i].count,
-			      table[i].size,
-			      table[i].count * table[i].size,
-			      table[i].func,
-			      table[i].line, table[i].caller,
-			      table[i].time);
-	}
 }
 
 /**
@@ -561,6 +439,117 @@ static void qdf_mem_domain_print(qdf_list_t *domain,
 	qdf_spin_unlock(&qdf_mem_list_lock);
 
 	(*mem_print)(table, print, print_priv, threshold);
+}
+
+/**
+ * qdf_mem_meta_table_print() - memory metadata table print logic
+ * @table: the memory metadata table to print
+ * @print: the print adapter function
+ * @print_priv: the private data to be consumed by @print
+ * @threshold: the threshold value set by user to list top allocations
+ *
+ * Return: None
+ */
+static void qdf_mem_meta_table_print(struct __qdf_mem_info *table,
+				     qdf_abstract_print print,
+				     void *print_priv,
+				     uint32_t threshold)
+{
+	int i;
+	char debug_str[QDF_DEBUG_STRING_SIZE];
+	size_t len = 0;
+	char *debug_prefix = "WLAN_BUG_RCA: memory leak detected";
+
+	len += qdf_scnprintf(debug_str, sizeof(debug_str) - len,
+			     "%s", debug_prefix);
+
+	for (i = 0; i < QDF_MEM_STAT_TABLE_SIZE; i++) {
+		if (!table[i].count)
+			break;
+
+		print(print_priv,
+		      "%6u x %5u = %7uB @ %s:%u   %pS %llu",
+		      table[i].count,
+		      table[i].size,
+		      table[i].count * table[i].size,
+		      table[i].func,
+		      table[i].line, table[i].caller,
+		      table[i].time);
+		len += qdf_scnprintf(debug_str + len,
+				     sizeof(debug_str) - len,
+				     " @ %s:%u %pS",
+				     table[i].func,
+				     table[i].line,
+				     table[i].caller);
+	}
+	print(print_priv, "%s", debug_str);
+}
+
+static int qdf_err_printer(void *priv, const char *fmt, ...)
+{
+	va_list args;
+
+	va_start(args, fmt);
+	QDF_VTRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR, (char *)fmt, args);
+	va_end(args);
+
+	return 0;
+}
+
+#endif /* MEMORY_DEBUG */
+
+u_int8_t prealloc_disabled = 1;
+qdf_declare_param(prealloc_disabled, byte);
+qdf_export_symbol(prealloc_disabled);
+
+#if defined WLAN_DEBUGFS
+
+/* Debugfs root directory for qdf_mem */
+static struct dentry *qdf_mem_debugfs_root;
+
+#ifdef MEMORY_DEBUG
+static int seq_printf_printer(void *priv, const char *fmt, ...)
+{
+	struct seq_file *file = priv;
+	va_list args;
+
+	va_start(args, fmt);
+	seq_vprintf(file, fmt, args);
+	seq_puts(file, "\n");
+	va_end(args);
+
+	return 0;
+}
+
+/**
+ * qdf_print_major_alloc() - memory metadata table print logic
+ * @table: the memory metadata table to print
+ * @print: the print adapter function
+ * @print_priv: the private data to be consumed by @print
+ * @threshold: the threshold value set by uset to list top allocations
+ *
+ * Return: None
+ */
+static void qdf_print_major_alloc(struct __qdf_mem_info *table,
+				  qdf_abstract_print print,
+				  void *print_priv,
+				  uint32_t threshold)
+{
+	int i;
+
+	for (i = 0; i < QDF_MEM_STAT_TABLE_SIZE; i++) {
+		if (!table[i].count)
+			break;
+		if (table[i].count >= threshold)
+			print(print_priv,
+			      "%6u x %5u = %7uB @ %s:%u   %pS %llu",
+			      table[i].count,
+			      table[i].size,
+			      table[i].count * table[i].size,
+			      table[i].func,
+			      table[i].line, table[i].caller,
+			      table[i].time);
+	}
 }
 
 /**
@@ -726,6 +715,181 @@ static ssize_t qdf_major_alloc_set_threshold(struct file *file,
 	return buf_size;
 }
 
+/**
+ * qdf_print_major_nbuf_allocs() - output agnostic nbuf print logic
+ * @threshold: the threshold value set by uset to list top allocations
+ * @print: the print adapter function
+ * @print_priv: the private data to be consumed by @print
+ * @mem_print: pointer to function which prints the memory allocation data
+ *
+ * Return: None
+ */
+static void
+qdf_print_major_nbuf_allocs(uint32_t threshold,
+			    qdf_abstract_print print,
+			    void *print_priv,
+			    void (*mem_print)(struct __qdf_mem_info *,
+					      qdf_abstract_print,
+					      void *, uint32_t))
+{
+	uint32_t nbuf_iter;
+	unsigned long irq_flag = 0;
+	QDF_NBUF_TRACK *p_node;
+	QDF_NBUF_TRACK *p_prev;
+	struct __qdf_mem_info table[QDF_MEM_STAT_TABLE_SIZE];
+	struct qdf_mem_header meta;
+	bool is_full;
+
+	qdf_mem_zero(table, sizeof(table));
+	qdf_mem_debug_print_header(print, print_priv, threshold);
+
+	if (is_initial_mem_debug_disabled)
+		return;
+
+	qdf_rl_info("major nbuf print with threshold %u", threshold);
+
+	for (nbuf_iter = 0; nbuf_iter < QDF_NET_BUF_TRACK_MAX_SIZE;
+	     nbuf_iter++) {
+		qdf_nbuf_acquire_track_lock(nbuf_iter, irq_flag);
+		p_node = qdf_nbuf_get_track_tbl(nbuf_iter);
+		while (p_node) {
+			meta.line = p_node->line_num;
+			meta.size = p_node->size;
+			meta.caller = NULL;
+			meta.time = p_node->time;
+			qdf_str_lcopy(meta.func, p_node->func_name,
+				      QDF_MEM_FUNC_NAME_SIZE);
+
+			is_full = qdf_mem_meta_table_insert(table, &meta);
+
+			if (is_full) {
+				(*mem_print)(table, print,
+					     print_priv, threshold);
+				qdf_mem_zero(table, sizeof(table));
+			}
+
+			p_prev = p_node;
+			p_node = p_node->p_next;
+		}
+		qdf_nbuf_release_track_lock(nbuf_iter, irq_flag);
+	}
+
+	(*mem_print)(table, print, print_priv, threshold);
+
+	qdf_rl_info("major nbuf print end");
+}
+
+/**
+ * qdf_major_nbuf_alloc_show() - print sequential callback
+ * @seq: seq_file handle
+ * @v: current iterator
+ *
+ * Return: 0 - success
+ */
+static int qdf_major_nbuf_alloc_show(struct seq_file *seq, void *v)
+{
+	struct major_alloc_priv *priv = (struct major_alloc_priv *)seq->private;
+
+	if (!priv) {
+		qdf_err("priv is null");
+		return -EINVAL;
+	}
+
+	qdf_print_major_nbuf_allocs(priv->threshold,
+				    seq_printf_printer,
+				    seq,
+				    qdf_print_major_alloc);
+
+	return 0;
+}
+
+/**
+ * qdf_nbuf_seq_start() - sequential callback to start
+ * @seq: seq_file handle
+ * @pos: The start position of the sequence
+ *
+ * Return: iterator pointer, or NULL if iteration is complete
+ */
+static void *qdf_nbuf_seq_start(struct seq_file *seq, loff_t *pos)
+{
+	enum qdf_debug_domain domain = *pos;
+
+	if (domain > QDF_DEBUG_NBUF_DOMAIN)
+		return NULL;
+
+	return pos;
+}
+
+/**
+ * qdf_nbuf_seq_next() - next sequential callback
+ * @seq: seq_file handle
+ * @v: the current iterator
+ * @pos: the current position
+ *
+ * Get the next node and release previous node.
+ *
+ * Return: iterator pointer, or NULL if iteration is complete
+ */
+static void *qdf_nbuf_seq_next(struct seq_file *seq, void *v, loff_t *pos)
+{
+	++*pos;
+
+	return qdf_nbuf_seq_start(seq, pos);
+}
+
+/**
+ * qdf_nbuf_seq_stop() - stop sequential callback
+ * @seq: seq_file handle
+ * @v: current iterator
+ *
+ * Return: None
+ */
+static void qdf_nbuf_seq_stop(struct seq_file *seq, void *v) { }
+
+/* sequential file operation table created to track major skb allocs */
+static const struct seq_operations qdf_major_nbuf_allocs_seq_ops = {
+	.start = qdf_nbuf_seq_start,
+	.next = qdf_nbuf_seq_next,
+	.stop = qdf_nbuf_seq_stop,
+	.show = qdf_major_nbuf_alloc_show,
+};
+
+static int qdf_major_nbuf_allocs_open(struct inode *inode, struct file *file)
+{
+	void *private = inode->i_private;
+	struct seq_file *seq;
+	int rc;
+
+	rc = seq_open(file, &qdf_major_nbuf_allocs_seq_ops);
+	if (rc == 0) {
+		seq = file->private_data;
+		seq->private = private;
+	}
+	return rc;
+}
+
+static ssize_t qdf_major_nbuf_alloc_set_threshold(struct file *file,
+						  const char __user *user_buf,
+						  size_t count,
+						  loff_t *pos)
+{
+	char buf[32];
+	ssize_t buf_size;
+	uint32_t threshold;
+	struct seq_file *seq = file->private_data;
+	struct major_alloc_priv *priv = (struct major_alloc_priv *)seq->private;
+
+	buf_size = min(count, (sizeof(buf) - 1));
+	if (buf_size <= 0)
+		return 0;
+	if (copy_from_user(buf, user_buf, buf_size))
+		return -EFAULT;
+	buf[buf_size] = '\0';
+	if (!kstrtou32(buf, 10, &threshold))
+		priv->threshold = threshold;
+	return buf_size;
+}
+
 /* file operation table for listing major allocs */
 static const struct file_operations fops_qdf_major_allocs = {
 	.owner = THIS_MODULE,
@@ -743,6 +907,37 @@ static const struct file_operations fops_qdf_mem_debugfs = {
 	.read = seq_read,
 	.llseek = seq_lseek,
 	.release = seq_release,
+};
+
+/* file operation table for listing major allocs */
+static const struct file_operations fops_qdf_nbuf_major_allocs = {
+	.owner = THIS_MODULE,
+	.open = qdf_major_nbuf_allocs_open,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.release = seq_release,
+	.write = qdf_major_nbuf_alloc_set_threshold,
+};
+
+static struct major_alloc_priv mem_priv = {
+	/* List type set to mem */
+	LIST_TYPE_MEM,
+	/* initial threshold to list APIs which allocates mem >= 50 times */
+	50
+};
+
+static struct major_alloc_priv dma_priv = {
+	/* List type set to DMA */
+	LIST_TYPE_DMA,
+	/* initial threshold to list APIs which allocates dma >= 50 times */
+	50
+};
+
+static struct major_alloc_priv nbuf_priv = {
+	/* List type set to NBUF */
+	LIST_TYPE_NBUF,
+	/* initial threshold to list APIs which allocates nbuf >= 50 times */
+	50
 };
 
 static QDF_STATUS qdf_mem_debug_debugfs_init(void)
@@ -770,6 +965,12 @@ static QDF_STATUS qdf_mem_debug_debugfs_init(void)
 			    qdf_mem_debugfs_root,
 			    &dma_priv,
 			    &fops_qdf_major_allocs);
+
+	debugfs_create_file("major_nbuf_allocs",
+			    0600,
+			    qdf_mem_debugfs_root,
+			    &nbuf_priv,
+			    &fops_qdf_nbuf_major_allocs);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -833,9 +1034,6 @@ static QDF_STATUS qdf_mem_debugfs_init(void)
 
 #else /* WLAN_DEBUGFS */
 
-static inline void qdf_mem_dma_inc(qdf_size_t size) {}
-static inline void qdf_mem_dma_dec(qdf_size_t size) {}
-
 static QDF_STATUS qdf_mem_debugfs_init(void)
 {
 	return QDF_STATUS_E_NOSUPPORT;
@@ -854,6 +1052,115 @@ static QDF_STATUS qdf_mem_debug_debugfs_exit(void)
 }
 
 #endif /* WLAN_DEBUGFS */
+
+void qdf_mem_kmalloc_inc(qdf_size_t size)
+{
+	qdf_atomic_add(size, &qdf_mem_stat.kmalloc);
+}
+
+static void qdf_mem_dma_inc(qdf_size_t size)
+{
+	qdf_atomic_add(size, &qdf_mem_stat.dma);
+}
+
+#ifdef CONFIG_WLAN_SYSFS_MEM_STATS
+void qdf_mem_skb_inc(qdf_size_t size)
+{
+	qdf_atomic_add(size, &qdf_mem_stat.skb);
+}
+
+void qdf_mem_skb_dec(qdf_size_t size)
+{
+	qdf_atomic_sub(size, &qdf_mem_stat.skb);
+}
+
+void qdf_mem_skb_total_inc(qdf_size_t size)
+{
+	int32_t skb_mem_max = 0;
+
+	qdf_atomic_add(size, &qdf_mem_stat.skb_total);
+	skb_mem_max = qdf_atomic_read(&qdf_mem_stat.skb_total);
+	if (qdf_mem_stat.skb_mem_max < skb_mem_max)
+		qdf_mem_stat.skb_mem_max = skb_mem_max;
+}
+
+void qdf_mem_skb_total_dec(qdf_size_t size)
+{
+	qdf_atomic_sub(size, &qdf_mem_stat.skb_total);
+}
+
+void qdf_mem_dp_tx_skb_inc(qdf_size_t size)
+{
+	int32_t curr_dp_tx_skb_mem_max = 0;
+
+	qdf_atomic_add(size, &qdf_mem_stat.dp_tx_skb);
+	curr_dp_tx_skb_mem_max = qdf_atomic_read(&qdf_mem_stat.dp_tx_skb);
+	if (qdf_mem_stat.dp_tx_skb_mem_max < curr_dp_tx_skb_mem_max)
+		qdf_mem_stat.dp_tx_skb_mem_max = curr_dp_tx_skb_mem_max;
+}
+
+void qdf_mem_dp_tx_skb_dec(qdf_size_t size)
+{
+	qdf_atomic_sub(size, &qdf_mem_stat.dp_tx_skb);
+}
+
+void qdf_mem_dp_rx_skb_inc(qdf_size_t size)
+{
+	int32_t curr_dp_rx_skb_mem_max = 0;
+
+	qdf_atomic_add(size, &qdf_mem_stat.dp_rx_skb);
+	curr_dp_rx_skb_mem_max = qdf_atomic_read(&qdf_mem_stat.dp_rx_skb);
+	if (qdf_mem_stat.dp_rx_skb_mem_max < curr_dp_rx_skb_mem_max)
+		qdf_mem_stat.dp_rx_skb_mem_max = curr_dp_rx_skb_mem_max;
+}
+
+void qdf_mem_dp_rx_skb_dec(qdf_size_t size)
+{
+	qdf_atomic_sub(size, &qdf_mem_stat.dp_rx_skb);
+}
+
+void qdf_mem_dp_tx_skb_cnt_inc(void)
+{
+	int32_t curr_dp_tx_skb_count_max = 0;
+
+	qdf_atomic_add(1, &qdf_mem_stat.dp_tx_skb_count);
+	curr_dp_tx_skb_count_max =
+		qdf_atomic_read(&qdf_mem_stat.dp_tx_skb_count);
+	if (qdf_mem_stat.dp_tx_skb_count_max < curr_dp_tx_skb_count_max)
+		qdf_mem_stat.dp_tx_skb_count_max = curr_dp_tx_skb_count_max;
+}
+
+void qdf_mem_dp_tx_skb_cnt_dec(void)
+{
+	qdf_atomic_sub(1, &qdf_mem_stat.dp_tx_skb_count);
+}
+
+void qdf_mem_dp_rx_skb_cnt_inc(void)
+{
+	int32_t curr_dp_rx_skb_count_max = 0;
+
+	qdf_atomic_add(1, &qdf_mem_stat.dp_rx_skb_count);
+	curr_dp_rx_skb_count_max =
+		qdf_atomic_read(&qdf_mem_stat.dp_rx_skb_count);
+	if (qdf_mem_stat.dp_rx_skb_count_max < curr_dp_rx_skb_count_max)
+		qdf_mem_stat.dp_rx_skb_count_max = curr_dp_rx_skb_count_max;
+}
+
+void qdf_mem_dp_rx_skb_cnt_dec(void)
+{
+	qdf_atomic_sub(1, &qdf_mem_stat.dp_rx_skb_count);
+}
+#endif
+
+void qdf_mem_kmalloc_dec(qdf_size_t size)
+{
+	qdf_atomic_sub(size, &qdf_mem_stat.kmalloc);
+}
+
+static inline void qdf_mem_dma_dec(qdf_size_t size)
+{
+	qdf_atomic_sub(size, &qdf_mem_stat.dma);
+}
 
 /**
  * __qdf_mempool_init() - Create and initialize memory pool
@@ -1479,6 +1786,12 @@ void *qdf_mem_malloc_atomic_fl(size_t size, const char *func, uint32_t line)
 {
 	void *ptr;
 
+	if (!size || size > QDF_MEM_MAX_MALLOC) {
+		qdf_nofl_err("Cannot malloc %zu bytes @ %s:%d", size, func,
+			     line);
+		return NULL;
+	}
+
 	ptr = qdf_mem_prealloc_get(size);
 	if (ptr)
 		return ptr;
@@ -2029,6 +2342,13 @@ void *qdf_mem_dma_alloc(qdf_device_t osdev, void *dev, qdf_size_t size,
 	return NULL;
 }
 
+#elif defined(QCA_USE_CUSTOMIZED_DMA_MEM) || defined(WCNSS_DMA_PRE_ALLOC)
+static inline void *qdf_mem_dma_alloc(qdf_device_t osdev, void *dev,
+				      qdf_size_t size, qdf_dma_addr_t *paddr)
+{
+	return cnss_dma_alloc_coherent(dev, size, paddr, qdf_mem_malloc_flags());
+}
+
 #else
 static inline void *qdf_mem_dma_alloc(qdf_device_t osdev, void *dev,
 				      qdf_size_t size, qdf_dma_addr_t *paddr)
@@ -2043,8 +2363,13 @@ qdf_mem_dma_free(void *dev, qdf_size_t size, void *vaddr, qdf_dma_addr_t paddr)
 {
 	qdf_mem_free(vaddr);
 }
+#elif defined(QCA_USE_CUSTOMIZED_DMA_MEM) || defined(WCNSS_DMA_PRE_ALLOC)
+static inline void
+qdf_mem_dma_free(void *dev, qdf_size_t size, void *vaddr, qdf_dma_addr_t paddr)
+{
+	cnss_dma_free_coherent(dev, size, vaddr, paddr);
+}
 #else
-
 static inline void
 qdf_mem_dma_free(void *dev, qdf_size_t size, void *vaddr, qdf_dma_addr_t paddr)
 {
@@ -2149,6 +2474,490 @@ void qdf_mem_free_consistent_debug(qdf_device_t osdev, void *dev,
 qdf_export_symbol(qdf_mem_free_consistent_debug);
 #endif /* MEMORY_DEBUG */
 
+#ifdef QCA_USE_CUSTOMIZED_DMA_MEM
+struct qdf_mem_list_node {
+	struct qdf_mem_list_node *prev;
+	struct qdf_mem_list_node *next;
+};
+
+struct qdf_mem_hash_entry {
+	qdf_dma_addr_t paddr;
+	void *vaddr;
+	qdf_size_t size;
+	qdf_size_t alloc_size;
+	void *src_vaddr;
+	struct qdf_mem_list_node listnode;
+};
+
+struct qdf_mem_hash_bucket {
+	struct qdf_mem_list_node listhead;
+	struct qdf_mem_hash_entry *entries;
+	uint32_t count;
+};
+
+struct qdf_mem_customized_dma {
+	qdf_device_t osdev;
+	struct qdf_mem_hash_bucket **hash_table;
+	uint32_t total_cnt;
+	qdf_spinlock_t hash_lock;
+	struct qdf_mem_list_node free_listhead;
+	qdf_spinlock_t freelist_lock;
+	uint32_t free_list_cnt;
+};
+
+#define MEM_NUM_HASH_BUCKETS	(1024)
+#define MEM_NUM_HASH_BUCKETS_MASK	(MEM_NUM_HASH_BUCKETS-1)
+#define HASH_FUNCTION(a) \
+	((((a) >> 14) ^ ((a) >> 4)) & MEM_NUM_HASH_BUCKETS_MASK)
+#define MEM_DBG(X)
+
+#define PAGE_NUM_OF_PRALLOCATED_MEM	(10000)
+
+static struct qdf_mem_customized_dma s_custom_mem = {0,};
+
+static inline
+void qdf_mem_list_init(struct qdf_mem_list_node *head)
+{
+	head->prev = head;
+	head->next = head;
+}
+
+static inline
+void qdf_mem_list_add_tail(struct qdf_mem_list_node *head,
+				     struct qdf_mem_list_node *node)
+{
+	head->prev->next = node;
+	node->prev = head->prev;
+	node->next = head;
+	head->prev = node;
+}
+
+static inline
+void qdf_mem_list_remove(struct qdf_mem_list_node *node)
+{
+	node->prev->next = node->next;
+	node->next->prev = node->prev;
+}
+
+static inline
+void *qdf_mem_list_peek_front(struct qdf_mem_list_node *head)
+{
+	struct qdf_mem_list_node *node;
+
+	if (head == head->next)
+		return NULL;
+
+	node = head->next;
+	return node;
+}
+static void *qdf_mem_alloc_customized_mem(qdf_device_t osdev,
+				  void *dev,
+				  qdf_size_t size,
+				  qdf_dma_addr_t *paddr)
+{
+	return qdf_mem_dma_alloc(osdev, osdev->dev, size, paddr);
+}
+
+static void qdf_mem_free_customized_mem(qdf_device_t osdev,
+				 qdf_size_t size,
+				 qdf_dma_addr_t paddr,
+				 void *vaddr)
+{
+	qdf_mem_dma_free(osdev->dev, size, vaddr, paddr);
+}
+
+static void qdf_mem_prealloc_customized_mem(void)
+{
+	int i;
+	qdf_dma_addr_t paddr;
+	void *vaddr;
+	struct qdf_mem_hash_entry *hash_entry = NULL;
+	qdf_size_t size = qdf_page_size;
+
+	for (i = 0; i < PAGE_NUM_OF_PRALLOCATED_MEM; i++) {
+		vaddr = qdf_mem_dma_alloc(NULL, NULL, size, &paddr);
+		if (qdf_unlikely(!vaddr)) {
+			qdf_err("Preallocate mem failed! allocated %d", i);
+			return;
+		}
+		hash_entry = qdf_mem_malloc(sizeof(struct qdf_mem_hash_entry));
+		if (qdf_unlikely(!hash_entry)) {
+			qdf_mem_dma_free(NULL,
+					size, vaddr, paddr);
+			qdf_err("alloc hash entry Fail");
+			return;
+		}
+		hash_entry->vaddr = vaddr;
+		hash_entry->paddr = paddr;
+		hash_entry->alloc_size = size;
+
+		qdf_spin_lock_bh(&s_custom_mem.freelist_lock);
+		qdf_mem_list_add_tail(&s_custom_mem.free_listhead,
+			  &hash_entry->listnode);
+		s_custom_mem.free_list_cnt++;
+		qdf_spin_unlock_bh(&s_custom_mem.freelist_lock);
+	}
+
+	qdf_info("preallocate buffer number %d", s_custom_mem.free_list_cnt);
+	return;
+}
+
+void qdf_mem_custom_init(void)
+{
+	int i;
+	void *alloc;
+
+	QDF_ASSERT(QDF_IS_PWR2(MEM_NUM_HASH_BUCKETS));
+	s_custom_mem.hash_table = qdf_mem_malloc(MEM_NUM_HASH_BUCKETS *
+			       sizeof(struct qdf_mem_hash_bucket *));
+	if (qdf_unlikely(!s_custom_mem.hash_table)) {
+		qdf_err("Malloc failed!");
+		return;
+	}
+
+	qdf_spinlock_create(&s_custom_mem.hash_lock);
+	qdf_spinlock_create(&s_custom_mem.freelist_lock);
+	qdf_mem_list_init(&s_custom_mem.free_listhead);
+
+	qdf_spin_lock_bh(&s_custom_mem.hash_lock);
+	for (i = 0; i < MEM_NUM_HASH_BUCKETS; i++) {
+		alloc = qdf_mem_malloc(sizeof(struct qdf_mem_hash_bucket));
+		if (qdf_unlikely(!alloc)) {
+			qdf_err("fail to malloc mem!");
+			qdf_spin_unlock_bh(&s_custom_mem.hash_lock);
+			goto alloc_fail;
+		}
+		s_custom_mem.hash_table[i] = alloc;
+		qdf_mem_list_init(&s_custom_mem.hash_table[i]->listhead);
+	}
+	qdf_spin_unlock_bh(&s_custom_mem.hash_lock);
+
+	qdf_mem_prealloc_customized_mem();
+	return;
+
+alloc_fail:
+	for(i--; i>0; i--)
+		qdf_mem_free(s_custom_mem.hash_table[i]);
+	qdf_spinlock_destroy(&s_custom_mem.hash_lock);
+	qdf_spinlock_destroy(&s_custom_mem.freelist_lock);
+	qdf_mem_free(s_custom_mem.hash_table);
+	s_custom_mem.hash_table = NULL;
+	return;
+}
+
+static void qdf_mem_free_list(struct qdf_mem_list_node *listhead)
+{
+	struct qdf_mem_list_node *list_iter;
+	struct qdf_mem_hash_entry *hash_entry;
+	static uint32_t free_cnt = 0;
+
+	list_iter = listhead->next;
+	while(list_iter != listhead) {
+		hash_entry =
+			container_of(list_iter,
+				     struct qdf_mem_hash_entry,
+				     listnode);
+		qdf_mem_list_remove(&hash_entry->listnode);
+		free_cnt++;
+		MEM_DBG(qdf_debug("P 0x%x V %pK SV %pK size %zx cnt %u",
+			  hash_entry->paddr, hash_entry->vaddr,
+			  hash_entry->src_vaddr,
+			  hash_entry->alloc_size,
+			  free_cnt));
+		qdf_mem_free_customized_mem(s_custom_mem.osdev,
+					    hash_entry->alloc_size,
+					    hash_entry->paddr,
+					    hash_entry->vaddr);
+		qdf_mem_free(hash_entry);
+		list_iter = list_iter->next;
+	}
+
+	return;
+}
+
+void qdf_mem_custom_deinit(void)
+{
+	int i;
+
+	if (!s_custom_mem.hash_table)
+		return;
+
+	qdf_info("hashlist cnt %d freelist cnt %d",
+		 s_custom_mem.total_cnt,
+		 s_custom_mem.free_list_cnt);
+
+	for (i = 0; i < MEM_NUM_HASH_BUCKETS; i++) {
+		qdf_mem_free_list(&s_custom_mem.hash_table[i]->listhead);
+		qdf_mem_free(s_custom_mem.hash_table[i]);
+		s_custom_mem.hash_table[i] = NULL;
+	}
+	qdf_mem_free_list(&s_custom_mem.free_listhead);
+	s_custom_mem.free_list_cnt = 0;
+
+	qdf_mem_free(s_custom_mem.hash_table);
+	s_custom_mem.hash_table = NULL;
+	qdf_spinlock_destroy(&s_custom_mem.hash_lock);
+	qdf_spinlock_destroy(&s_custom_mem.freelist_lock);
+	qdf_mem_zero(&s_custom_mem, sizeof(s_custom_mem));
+
+	return;
+}
+
+static inline
+QDF_STATUS qdf_mem_hash_list_insert(
+			struct qdf_mem_hash_entry *hash_element)
+{
+	uint32_t i;
+
+	i = HASH_FUNCTION(hash_element->paddr);
+
+	qdf_spin_lock_bh(&s_custom_mem.hash_lock);
+	qdf_mem_list_add_tail(&s_custom_mem.hash_table[i]->listhead,
+			      &hash_element->listnode);
+	s_custom_mem.hash_table[i]->count++;
+	s_custom_mem.total_cnt++;
+
+	qdf_spin_unlock_bh(&s_custom_mem.hash_lock);
+
+	MEM_DBG(qdf_debug("P 0x%x V %pK SV %pK bucket %d size %zx, TC %d FC %d",
+			  hash_element->paddr, hash_element->vaddr,
+			  hash_element->src_vaddr, (int)i,
+			  hash_element->size, s_custom_mem.total_cnt,
+			  s_custom_mem.free_list_cnt));
+
+	return QDF_STATUS_SUCCESS;
+}
+
+static void
+*qdf_mem_hash_lookup(qdf_dma_addr_t paddr)
+{
+	uint32_t i;
+	struct qdf_mem_list_node * list_iter;
+	struct qdf_mem_hash_entry *hash_entry;
+	struct qdf_mem_hash_entry *dest_entry;
+
+	if(!s_custom_mem.hash_table)
+		return NULL;
+
+	i = HASH_FUNCTION(paddr);
+	dest_entry = NULL;
+
+	qdf_spin_lock_bh(&s_custom_mem.hash_lock);
+	list_iter = s_custom_mem.hash_table[i]->listhead.next;
+	while (list_iter != &s_custom_mem.hash_table[i]->listhead) {
+		hash_entry =
+			container_of(list_iter,
+				     struct qdf_mem_hash_entry,
+				     listnode);
+		if (hash_entry->paddr == paddr) {
+			qdf_mem_list_remove(&hash_entry->listnode);
+			dest_entry = hash_entry;
+			s_custom_mem.hash_table[i]->count--;
+			s_custom_mem.total_cnt--;
+			MEM_DBG(qdf_debug("P 0x%llx, V %pK, SV %pK S %zx B %d, C %d TC %d FC %d",
+			          (unsigned long long)paddr,
+			          hash_entry->vaddr,
+			          hash_entry->src_vaddr,
+			          hash_entry->size,
+			          (int)i,
+			          s_custom_mem.hash_table[i]->count,
+			          s_custom_mem.total_cnt,
+			          s_custom_mem.free_list_cnt));
+			break;
+		}
+		list_iter = list_iter->next;
+	}
+	qdf_spin_unlock_bh(&s_custom_mem.hash_lock);
+
+	return dest_entry;
+}
+
+QDF_STATUS
+qdf_customized_mem_map(qdf_device_t osdev,
+			     qdf_dma_addr_t *paddr,
+			     void *src_vaddr,
+			     qdf_size_t size,
+			     qdf_dma_dir_t dir)
+{
+	void *vaddr = NULL;
+	struct qdf_mem_hash_entry *hash_entry = NULL;
+	struct qdf_mem_list_node * freelist_node;
+	qdf_size_t alloc_size = qdf_page_size;
+
+	if(!s_custom_mem.hash_table) {
+		qdf_err("not Initialized");
+		return QDF_STATUS_E_NOSUPPORT;
+	}
+
+	qdf_spin_lock_bh(&s_custom_mem.freelist_lock);
+	if(s_custom_mem.free_list_cnt > 0
+	   && size <= qdf_page_size) {
+		freelist_node =
+			qdf_mem_list_peek_front(&s_custom_mem.free_listhead);
+		if (qdf_unlikely(!freelist_node)) {
+			qdf_spin_unlock_bh(&s_custom_mem.freelist_lock);
+			qdf_err("[node %p]head %p next %p, pre %p, fc %d",
+				freelist_node, &s_custom_mem.free_listhead,
+				s_custom_mem.free_listhead.next,
+				s_custom_mem.free_listhead.prev,
+				s_custom_mem.free_list_cnt);
+			QDF_ASSERT(0);
+			return QDF_STATUS_E_FAULT;
+		}
+
+		hash_entry =
+			container_of(freelist_node,
+				     struct qdf_mem_hash_entry,
+				     listnode);
+		qdf_mem_list_remove(&hash_entry->listnode);
+		s_custom_mem.free_list_cnt--;
+		qdf_spin_unlock_bh(&s_custom_mem.freelist_lock);
+	} else {
+		qdf_spin_unlock_bh(&s_custom_mem.freelist_lock);
+		if (size > alloc_size)
+			alloc_size = size;
+		vaddr = qdf_mem_alloc_customized_mem(osdev,
+					osdev->dev, alloc_size, paddr);
+		if (qdf_unlikely(!vaddr)) {
+			qdf_err("unable to alloc mem, size %zx! %s",
+				size,
+				(qdf_mem_malloc_flags()==GFP_KERNEL)?
+				"GFP_KERNEL":"GFP_ATOMIC");
+			return QDF_STATUS_E_NOMEM;
+		}
+		hash_entry = qdf_mem_malloc(sizeof(struct qdf_mem_hash_entry));
+		if (qdf_unlikely(!hash_entry)) {
+			qdf_mem_free_customized_mem(osdev,
+					alloc_size, *paddr, vaddr);
+			qdf_err("alloc Fail");
+			return QDF_STATUS_E_NOMEM;
+		}
+		hash_entry->vaddr = vaddr;
+		hash_entry->paddr = *paddr;
+		hash_entry->alloc_size = alloc_size;
+	}
+
+	hash_entry->src_vaddr = src_vaddr;
+	hash_entry->size = size;
+	*paddr = hash_entry->paddr;
+	/* save the mem to hash list */
+	qdf_mem_hash_list_insert(hash_entry);
+
+	if (dir == QDF_DMA_TO_DEVICE
+		|| dir == QDF_DMA_BIDIRECTIONAL)
+		qdf_mem_copy(hash_entry->vaddr, src_vaddr, size);
+
+	return QDF_STATUS_SUCCESS;
+}
+
+QDF_STATUS
+qdf_customized_mem_unmap(qdf_device_t osdev,
+				qdf_dma_addr_t paddr,
+				qdf_size_t size,
+				qdf_dma_dir_t dir)
+{
+	struct qdf_mem_hash_entry *hash_entry;
+
+	hash_entry =
+		qdf_mem_hash_lookup(paddr);
+
+	if (!hash_entry) {
+		qdf_err("no entry found for %llx size %zx!\n",
+			  (unsigned long long)paddr, size);
+		QDF_ASSERT(0);
+		return QDF_STATUS_E_INVAL;
+	}
+
+	if (dir == QDF_DMA_FROM_DEVICE
+		|| dir == QDF_DMA_BIDIRECTIONAL)
+		qdf_mem_copy(hash_entry->src_vaddr,
+			hash_entry->vaddr, size);
+
+	qdf_spin_lock_bh(&s_custom_mem.freelist_lock);
+	qdf_mem_list_add_tail(&s_custom_mem.free_listhead,
+			  &hash_entry->listnode);
+	s_custom_mem.free_list_cnt++;
+	qdf_spin_unlock_bh(&s_custom_mem.freelist_lock);
+
+	MEM_DBG(qdf_debug("Add to Freelist cnt %d",
+		s_custom_mem.free_list_cnt));
+	s_custom_mem.osdev = osdev;
+
+	return QDF_STATUS_SUCCESS;
+}
+
+void qdf_mem_hash_dump(void)
+{
+	int i;
+	struct qdf_mem_hash_bucket * bucket;
+	struct qdf_mem_hash_entry *hash_entry;
+	struct qdf_mem_list_node *list_iter;
+	uint32_t cnt;
+
+	if (!s_custom_mem.hash_table)
+		return;
+
+	qdf_spin_lock_bh(&s_custom_mem.hash_lock);
+
+	for (i=0; i< MEM_NUM_HASH_BUCKETS; i++) {
+		bucket = s_custom_mem.hash_table[i];
+		hash_entry = bucket->entries;
+		list_iter = bucket->listhead.next;
+		cnt = 0;
+		while (list_iter != &bucket->listhead) {
+			hash_entry =
+				container_of(list_iter,
+					     struct qdf_mem_hash_entry,
+					     listnode);
+			qdf_debug("bucket[%d][%d]:P 0x%llx, v %pK, SV %pK",
+				  i,
+				  cnt++,
+				  (unsigned long long)hash_entry->paddr,
+				  hash_entry->vaddr,
+				  hash_entry->src_vaddr);
+			list_iter = list_iter->next;
+		}
+	}
+	qdf_spin_unlock_bh(&s_custom_mem.hash_lock);
+}
+
+#else
+void qdf_mem_custom_init(void)
+{
+
+}
+
+void qdf_mem_custom_deinit(void)
+{
+
+}
+
+void qdf_mem_hash_dump(void)
+{
+
+}
+
+QDF_STATUS
+qdf_customized_mem_map(qdf_device_t osdev,
+				      qdf_dma_addr_t *paddr,
+				      void *src_vaddr,
+				      qdf_size_t size,
+				      qdf_dma_dir_t dir)
+{
+	return QDF_STATUS_E_NOSUPPORT;
+}
+
+QDF_STATUS
+qdf_customized_mem_unmap(qdf_device_t osdev,
+				      qdf_dma_addr_t paddr,
+				      qdf_size_t size,
+				      qdf_dma_dir_t dir)
+{
+	return QDF_STATUS_E_NOSUPPORT;
+}
+
+#endif
+
 void __qdf_mem_free_consistent(qdf_device_t osdev, void *dev,
 			       qdf_size_t size, void *vaddr,
 			       qdf_dma_addr_t paddr, qdf_dma_context_t memctx)
@@ -2237,6 +3046,26 @@ void *qdf_aligned_mem_alloc_consistent_fl(
 }
 qdf_export_symbol(qdf_aligned_mem_alloc_consistent_fl);
 
+#if (defined(QCA_USE_CUSTOMIZED_DMA_MEM))
+void qdf_mem_dma_sync_single_for_device(qdf_device_t osdev,
+					qdf_dma_addr_t bus_addr,
+					qdf_size_t size,
+					enum dma_data_direction direction)
+{
+
+}
+qdf_export_symbol(qdf_mem_dma_sync_single_for_device);
+
+void qdf_mem_dma_sync_single_for_cpu(qdf_device_t osdev,
+				     qdf_dma_addr_t bus_addr,
+				     qdf_size_t size,
+				     enum dma_data_direction direction)
+{
+
+}
+qdf_export_symbol(qdf_mem_dma_sync_single_for_cpu);
+
+#else
 /**
  * qdf_mem_dma_sync_single_for_device() - assign memory to device
  * @osdev: OS device handle
@@ -2277,11 +3106,13 @@ void qdf_mem_dma_sync_single_for_cpu(qdf_device_t osdev,
 	dma_sync_single_for_cpu(osdev->dev, bus_addr,  size, direction);
 }
 qdf_export_symbol(qdf_mem_dma_sync_single_for_cpu);
+#endif
 
 void qdf_mem_init(void)
 {
 	qdf_mem_debug_init();
 	qdf_net_buf_debug_init();
+	qdf_frag_debug_init();
 	qdf_mem_debugfs_init();
 	qdf_mem_debug_debugfs_init();
 }
@@ -2291,6 +3122,7 @@ void qdf_mem_exit(void)
 {
 	qdf_mem_debug_debugfs_exit();
 	qdf_mem_debugfs_exit();
+	qdf_frag_debug_exit();
 	qdf_net_buf_debug_exit();
 	qdf_mem_debug_exit();
 }
@@ -2318,4 +3150,130 @@ void qdf_ether_addr_copy(void *dst_addr, const void *src_addr)
 	ether_addr_copy(dst_addr, src_addr);
 }
 qdf_export_symbol(qdf_ether_addr_copy);
+
+int32_t qdf_dma_mem_stats_read(void)
+{
+	return qdf_atomic_read(&qdf_mem_stat.dma);
+}
+
+qdf_export_symbol(qdf_dma_mem_stats_read);
+
+int32_t qdf_heap_mem_stats_read(void)
+{
+	return qdf_atomic_read(&qdf_mem_stat.kmalloc);
+}
+
+qdf_export_symbol(qdf_heap_mem_stats_read);
+
+int32_t qdf_skb_mem_stats_read(void)
+{
+	return qdf_atomic_read(&qdf_mem_stat.skb);
+}
+
+qdf_export_symbol(qdf_skb_mem_stats_read);
+
+int32_t qdf_skb_total_mem_stats_read(void)
+{
+	return qdf_atomic_read(&qdf_mem_stat.skb_total);
+}
+
+qdf_export_symbol(qdf_skb_total_mem_stats_read);
+
+int32_t qdf_skb_max_mem_stats_read(void)
+{
+	return qdf_mem_stat.skb_mem_max;
+}
+
+qdf_export_symbol(qdf_skb_max_mem_stats_read);
+
+int32_t qdf_dp_tx_skb_mem_stats_read(void)
+{
+	return qdf_atomic_read(&qdf_mem_stat.dp_tx_skb);
+}
+
+qdf_export_symbol(qdf_dp_tx_skb_mem_stats_read);
+
+int32_t qdf_dp_rx_skb_mem_stats_read(void)
+{
+	return qdf_atomic_read(&qdf_mem_stat.dp_rx_skb);
+}
+
+qdf_export_symbol(qdf_dp_rx_skb_mem_stats_read);
+
+int32_t qdf_mem_dp_tx_skb_cnt_read(void)
+{
+	return qdf_atomic_read(&qdf_mem_stat.dp_tx_skb_count);
+}
+
+qdf_export_symbol(qdf_mem_dp_tx_skb_cnt_read);
+
+int32_t qdf_mem_dp_tx_skb_max_cnt_read(void)
+{
+	return qdf_mem_stat.dp_tx_skb_count_max;
+}
+
+qdf_export_symbol(qdf_mem_dp_tx_skb_max_cnt_read);
+
+int32_t qdf_mem_dp_rx_skb_cnt_read(void)
+{
+	return qdf_atomic_read(&qdf_mem_stat.dp_rx_skb_count);
+}
+
+qdf_export_symbol(qdf_mem_dp_rx_skb_cnt_read);
+
+int32_t qdf_mem_dp_rx_skb_max_cnt_read(void)
+{
+	return qdf_mem_stat.dp_rx_skb_count_max;
+}
+
+qdf_export_symbol(qdf_mem_dp_rx_skb_max_cnt_read);
+
+int32_t qdf_dp_tx_skb_max_mem_stats_read(void)
+{
+	return qdf_mem_stat.dp_tx_skb_mem_max;
+}
+
+qdf_export_symbol(qdf_dp_tx_skb_max_mem_stats_read);
+
+int32_t qdf_dp_rx_skb_max_mem_stats_read(void)
+{
+	return qdf_mem_stat.dp_rx_skb_mem_max;
+}
+
+qdf_export_symbol(qdf_dp_rx_skb_max_mem_stats_read);
+
+int32_t qdf_mem_tx_desc_cnt_read(void)
+{
+	return qdf_atomic_read(&qdf_mem_stat.tx_descs_outstanding);
+}
+
+qdf_export_symbol(qdf_mem_tx_desc_cnt_read);
+
+int32_t qdf_mem_tx_desc_max_read(void)
+{
+	return qdf_mem_stat.tx_descs_max;
+}
+
+qdf_export_symbol(qdf_mem_tx_desc_max_read);
+
+void qdf_mem_tx_desc_cnt_update(qdf_atomic_t pending_tx_descs,
+				int32_t tx_descs_max)
+{
+	qdf_mem_stat.tx_descs_outstanding = pending_tx_descs;
+	qdf_mem_stat.tx_descs_max = tx_descs_max;
+}
+
+qdf_export_symbol(qdf_mem_tx_desc_cnt_update);
+
+void qdf_mem_stats_init(void)
+{
+	qdf_mem_stat.skb_mem_max = 0;
+	qdf_mem_stat.dp_tx_skb_mem_max = 0;
+	qdf_mem_stat.dp_rx_skb_mem_max = 0;
+	qdf_mem_stat.dp_tx_skb_count_max = 0;
+	qdf_mem_stat.dp_rx_skb_count_max = 0;
+	qdf_mem_stat.tx_descs_max = 0;
+}
+
+qdf_export_symbol(qdf_mem_stats_init);
 

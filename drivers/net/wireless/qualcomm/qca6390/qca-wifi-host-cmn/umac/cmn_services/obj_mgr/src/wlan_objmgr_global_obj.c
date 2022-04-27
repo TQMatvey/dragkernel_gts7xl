@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -21,6 +22,7 @@
 
 #include "wlan_objmgr_global_obj_i.h"
 #include <wlan_objmgr_global_obj.h>
+#include "wlan_objmgr_debug.h"
 #include "wlan_objmgr_psoc_obj.h"
 #include "qdf_mem.h"
 #include <qdf_module.h>
@@ -427,6 +429,7 @@ QDF_STATUS wlan_objmgr_register_vdev_create_handler(
 	qdf_spin_unlock_bh(&g_umac_glb_obj->global_lock);
 	return QDF_STATUS_SUCCESS;
 }
+qdf_export_symbol(wlan_objmgr_register_vdev_create_handler);
 
 QDF_STATUS wlan_objmgr_unregister_vdev_create_handler(
 		enum wlan_umac_comp_id id,
@@ -453,6 +456,7 @@ QDF_STATUS wlan_objmgr_unregister_vdev_create_handler(
 	qdf_spin_unlock_bh(&g_umac_glb_obj->global_lock);
 	return QDF_STATUS_SUCCESS;
 }
+qdf_export_symbol(wlan_objmgr_unregister_vdev_create_handler);
 
 QDF_STATUS wlan_objmgr_register_vdev_destroy_handler(
 		enum wlan_umac_comp_id id,
@@ -479,6 +483,7 @@ QDF_STATUS wlan_objmgr_register_vdev_destroy_handler(
 	qdf_spin_unlock_bh(&g_umac_glb_obj->global_lock);
 	return QDF_STATUS_SUCCESS;
 }
+qdf_export_symbol(wlan_objmgr_register_vdev_destroy_handler);
 
 QDF_STATUS wlan_objmgr_unregister_vdev_destroy_handler(
 		enum wlan_umac_comp_id id,
@@ -505,6 +510,7 @@ QDF_STATUS wlan_objmgr_unregister_vdev_destroy_handler(
 	qdf_spin_unlock_bh(&g_umac_glb_obj->global_lock);
 	return QDF_STATUS_SUCCESS;
 }
+qdf_export_symbol(wlan_objmgr_unregister_vdev_destroy_handler);
 
 QDF_STATUS wlan_objmgr_register_vdev_status_handler(
 		enum wlan_umac_comp_id id,
@@ -632,6 +638,7 @@ QDF_STATUS wlan_objmgr_register_peer_create_handler(
 	return QDF_STATUS_SUCCESS;
 }
 
+qdf_export_symbol(wlan_objmgr_register_peer_create_handler);
 
 QDF_STATUS wlan_objmgr_unregister_peer_create_handler(
 		enum wlan_umac_comp_id id,
@@ -659,6 +666,8 @@ QDF_STATUS wlan_objmgr_unregister_peer_create_handler(
 	return QDF_STATUS_SUCCESS;
 }
 
+qdf_export_symbol(wlan_objmgr_unregister_peer_create_handler);
+
 QDF_STATUS wlan_objmgr_register_peer_destroy_handler(
 		enum wlan_umac_comp_id id,
 		wlan_objmgr_peer_destroy_handler handler,
@@ -685,6 +694,8 @@ QDF_STATUS wlan_objmgr_register_peer_destroy_handler(
 	return QDF_STATUS_SUCCESS;
 }
 
+qdf_export_symbol(wlan_objmgr_register_peer_destroy_handler);
+
 QDF_STATUS wlan_objmgr_unregister_peer_destroy_handler(
 		enum wlan_umac_comp_id id,
 		wlan_objmgr_peer_destroy_handler handler,
@@ -710,6 +721,8 @@ QDF_STATUS wlan_objmgr_unregister_peer_destroy_handler(
 	qdf_spin_unlock_bh(&g_umac_glb_obj->global_lock);
 	return QDF_STATUS_SUCCESS;
 }
+
+qdf_export_symbol(wlan_objmgr_unregister_peer_destroy_handler);
 
 QDF_STATUS wlan_objmgr_register_peer_status_handler(
 		enum wlan_umac_comp_id id,
@@ -858,3 +871,26 @@ QDF_STATUS wlan_objmgr_iterate_psoc_list(
 
 qdf_export_symbol(wlan_objmgr_iterate_psoc_list);
 
+struct wlan_objmgr_psoc
+*wlan_objmgr_get_psoc_by_id(uint8_t psoc_id, wlan_objmgr_ref_dbgid dbg_id)
+{
+	struct wlan_objmgr_psoc *psoc;
+
+	if (psoc_id >= WLAN_OBJMGR_MAX_DEVICES) {
+		obj_mgr_err(" PSOC id[%d] is invalid", psoc_id);
+		return NULL;
+	}
+
+	qdf_spin_lock_bh(&g_umac_glb_obj->global_lock);
+
+	psoc = g_umac_glb_obj->psoc[psoc_id];
+	if (psoc) {
+		if (QDF_IS_STATUS_ERROR(wlan_objmgr_psoc_try_get_ref(psoc,
+								     dbg_id)))
+			psoc = NULL;
+	}
+
+	qdf_spin_unlock_bh(&g_umac_glb_obj->global_lock);
+
+	return psoc;
+}

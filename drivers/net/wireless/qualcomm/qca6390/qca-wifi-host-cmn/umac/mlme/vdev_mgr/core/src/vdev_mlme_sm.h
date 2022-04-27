@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -576,6 +576,24 @@ static inline QDF_STATUS mlme_vdev_is_newchan_no_cac(
 
 	if ((vdev_mlme->ops) && vdev_mlme->ops->mlme_vdev_is_newchan_no_cac)
 		ret = vdev_mlme->ops->mlme_vdev_is_newchan_no_cac(vdev_mlme);
+
+	return ret;
+}
+
+/**
+ * mlme_vdev_dfs_cac_wait_notify - Notifies DFS CAC wait state
+ * @vdev_mlme_obj:  VDEV MLME comp object
+ *
+ * Return: NO_SUPPORT if the callback is not supported.
+ *         SUCCESS if DFS CAC Wait notification handled by caller
+ */
+static inline QDF_STATUS mlme_vdev_dfs_cac_wait_notify(
+				struct vdev_mlme_obj *vdev_mlme)
+{
+	QDF_STATUS ret = QDF_STATUS_E_NOSUPPORT;
+
+	if ((vdev_mlme->ops) && vdev_mlme->ops->mlme_vdev_dfs_cac_wait_notify)
+		ret = vdev_mlme->ops->mlme_vdev_dfs_cac_wait_notify(vdev_mlme);
 
 	return ret;
 }

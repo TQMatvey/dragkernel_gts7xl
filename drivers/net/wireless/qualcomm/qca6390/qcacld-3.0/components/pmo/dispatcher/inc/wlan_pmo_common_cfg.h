@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -141,13 +141,13 @@
  * <ini>
  * gEnableModulatedDTIM - Enable/Disable modulated DTIM feature
  * @Min: 0
- * @Max: 5
+ * @Max: 10
  * @Default: 0
  *
  * This ini is used to enable/disable modulated DTIM feature.
  *
  * 0 - Disable modulated DTIM.
- * 1 to 5 - The maximum No. of modulated DTIM period used for calculating the
+ * 1 to 10 - The maximum No. of modulated DTIM period used for calculating the
  * target listen interval.
  *
  * The target listen interval will be updated to firmware when host driver is
@@ -163,7 +163,7 @@
 #define CFG_PMO_ENABLE_MODULATED_DTIM CFG_INI_UINT( \
 	"gEnableModulatedDTIM", \
 	0, \
-	5, \
+	10, \
 	0, \
 	CFG_VALUE_OR_DEFAULT, \
 	"Enable/disable modulated DTIM feature")
@@ -293,46 +293,6 @@
 					0, 3, 3, \
 					CFG_VALUE_OR_DEFAULT, \
 					"Enable WoW Support")
-/*
- * <ini>
- * wowlan_deauth_enable - Enable/Disable wowlan deauth enable
- * @Min: 0
- * @Max: 1
- * @Default: 1
- *
- * This ini is used to enable/disable wowlan deauth enable.
- *
- * Related: None
- *
- * Supported Feature: Power Save
- *
- * Usage: External
- *
- * </ini>
- */
-#define CFG_PMO_WOWLAN_DEAUTH_ENABLE CFG_INI_BOOL("wowlan_deauth_enable", \
-						  1, \
-						  "Enable WoWLan deauth")
-/*
- * <ini>
- * wowlan_disassoc_enable - Enable/Disable wowlan disassoc enable
- * @Min: 0
- * @Max: 1
- * @Default: 1
- *
- * This ini is used to enable/disable wowlan disassoc enable.
- *
- * Related: None
- *
- * Supported Feature: Power Save
- *
- * Usage: External
- *
- * </ini>
- */
-#define CFG_PMO_WOWLAN_DISASSOC_ENABLE CFG_INI_BOOL("wowlan_disassoc_enable", \
-						    1, \
-						    "Enable WoW Support")
 
 /*
  * <ini>
@@ -444,6 +404,85 @@
 	CFG_VALUE_OR_DEFAULT, \
 	"RA rate limit interval")
 
+/*
+ * <ini>
+ * enable_bus_suspend_in_sap_mode - enable PCIe bus suspend as part of
+ * platform system suspend for SAP with one or more clients connected
+ * @Min: 0
+ * @Max: 1
+ * @Default: 0
+ *
+ * This ini is used to PCIe bus suspend as part of platform system suspend for
+ * SAP with one or more clients connected
+ *
+ * 0: PCIe Bus suspend is not supported in SAP mode with one or more clients
+ * connected
+ * 1: PCIe Bus suspend is supported in SAP mode with one or more clients
+ * connected
+ * Related: None
+ *
+ * Supported Feature: Power Save
+ *
+ * Usage: Internal
+ *
+ * </ini>
+ */
+#define CFG_ENABLE_BUS_SUSPEND_IN_SAP_MODE CFG_INI_BOOL( \
+		"enable_bus_suspend_in_sap_mode", \
+		0, \
+		"This ini is used to enable bus suspend in SAP mode")
+
+/*
+ * <ini>
+ * enable_bus_suspend_in_go_mode - enable PCIe bus suspend as part of
+ * platform system suspend for P2PGO with one or more clients connected
+ * @Min: 0
+ * @Max: 1
+ * @Default: 0
+ *
+ * This ini is used to PCIe bus suspend as part of platform system suspend for
+ * P2PGO with one or more clients connected
+ *
+ * 0: PCIe Bus suspend is not supported in P2PGO mode with one or more clients
+ * connected
+ * 1: PCIe Bus suspend is supported in P2PGO mode with one or more clients
+ * connected
+ * Related: None
+ *
+ * Supported Feature: Power Save
+ *
+ * Usage: Internal
+ *
+ * </ini>
+ */
+#define CFG_ENABLE_BUS_SUSPEND_IN_GO_MODE CFG_INI_BOOL( \
+		"enable_bus_suspend_in_go_mode", \
+		0, \
+		"This ini is used to enable bus suspend in P2PGO mode")
+
+/*
+ * <ini>
+ * disconnect_sap_tdls_in_wow - disconnect sap tdls in wow
+ * @Min: 0
+ * @Max: 1
+ * @Default: 0
+ *
+ * Due to the limitation on third party platform, add ini to take
+ * special care of the below wow case to avoid fw crash.
+ * The sap/p2p_go shall kick out all the connected sta/p2p_gc and
+ * then go to suspend considering d0wow/d3wow is not supported.
+ * Teardown tdls link proactively since auto sleep mechanism not
+ * supported.
+ *
+ * Usage: External
+ *
+ * </ini>
+ */
+#define CFG_DISCONNECT_SAP_TDLS_IN_WOW CFG_INI_BOOL( \
+		"disconnect_sap_tdls_in_wow", \
+		0, \
+		"disconnect sap tdls in wow")
+
 #define CFG_PMO_COMMON_ALL \
 	CFG(CFG_ENABLE_SAP_SUSPEND) \
 	CFG(CFG_PMO_ENABLE_HOST_ARPOFFLOAD) \
@@ -455,13 +494,14 @@
 	CFG(CFG_PMO_MC_ADDR_LIST_ENABLE) \
 	CFG(CFG_PMO_POWERSAVE_MODE) \
 	CFG(CFG_PMO_MAX_PS_POLL) \
-	CFG(CFG_PMO_WOWLAN_DEAUTH_ENABLE) \
-	CFG(CFG_PMO_WOWLAN_DISASSOC_ENABLE) \
 	CFG(CFG_PMO_WOW_ENABLE) \
 	CFG(CFG_PMO_ACTIVE_MODE) \
 	CFG(CFG_PMO_PWR_FAILURE) \
 	CFG(CFG_PMO_WOW_DATA_INACTIVITY_TIMEOUT) \
 	CFG(CFG_RA_RATE_LIMIT_INTERVAL) \
-	CFG(CFG_PMO_MOD_DTIM_ON_SYS_SUSPEND)
+	CFG(CFG_PMO_MOD_DTIM_ON_SYS_SUSPEND) \
+	CFG(CFG_ENABLE_BUS_SUSPEND_IN_SAP_MODE) \
+	CFG(CFG_ENABLE_BUS_SUSPEND_IN_GO_MODE) \
+	CFG(CFG_DISCONNECT_SAP_TDLS_IN_WOW)
 
 #endif /* WLAN_PMO_COMMON_CFG_H__ */

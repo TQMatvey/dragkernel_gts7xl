@@ -226,10 +226,8 @@ void ol_tx_set_is_mgmt_over_wmi_enabled(uint8_t value)
 	struct ol_txrx_soc_t *soc = cds_get_context(QDF_MODULE_ID_SOC);
 	ol_txrx_pdev_handle pdev;
 
-	if (qdf_unlikely(!soc)) {
-		ol_txrx_err("soc is NULL");
+	if (qdf_unlikely(!soc))
 		return;
-	}
 
 	pdev = ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
 	if (!pdev) {
@@ -250,10 +248,8 @@ uint8_t ol_tx_get_is_mgmt_over_wmi_enabled(void)
 	struct ol_txrx_soc_t *soc = cds_get_context(QDF_MODULE_ID_SOC);
 	ol_txrx_pdev_handle pdev;
 
-	if (qdf_unlikely(!soc)) {
-		ol_txrx_err("soc is NULL");
+	if (qdf_unlikely(!soc))
 		return 0;
-	}
 
 	pdev = ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
 	if (!pdev) {
@@ -334,7 +330,7 @@ ol_txrx_get_vdev_by_peer_addr(struct cdp_pdev *ppdev,
 
 	if (!peer) {
 		QDF_TRACE(QDF_MODULE_ID_TXRX, QDF_TRACE_LEVEL_INFO_HIGH,
-			  "PDEV not found for peer_addr:" QDF_MAC_ADDR_FMT,
+			  "Peer not found for peer_addr:" QDF_MAC_ADDR_FMT,
 			  QDF_MAC_ADDR_REF(peer_addr.bytes));
 		return NULL;
 	}
@@ -1620,11 +1616,39 @@ static void ol_tx_free_descs_inuse(ol_txrx_pdev_handle pdev)
 		 * In particular, check that there are no frames that have
 		 * been given to the target to transmit, for which the
 		 * target has never provided a response.
+		 *
+		 * Rome supports mgmt Tx via HTT interface, not via WMI.
+		 * When mgmt frame is sent, 2 tx desc is allocated:
+		 * mgmt_txrx_desc is allocated in wlan_mgmt_txrx_mgmt_frame_tx,
+		 * ol_tx_desc is allocated in ol_txrx_mgmt_send_ext.
+		 * They point to same net buffer.
+		 * net buffer is mapped in htt_tx_desc_init.
+		 *
+		 * When SSR during Rome STA connected, deauth frame is sent,
+		 * but no tx complete since firmware hung already.
+		 * Pending mgmt frames are unmapped and freed when destroy
+		 * vdev.
+		 * hdd_reset_all_adapters->hdd_stop_adapter->hdd_vdev_destroy
+		 * ->wma_handle_vdev_detach->wlan_mgmt_txrx_vdev_drain
+		 * ->wma_mgmt_frame_fill_peer_cb
+		 * ->mgmt_txrx_tx_completion_handler.
+		 *
+		 * Don't need unmap and free net buffer of mgmt frames again
+		 * during data path clean up, just free ol_tx_desc.
+		 * hdd_wlan_stop_modules->cds_post_disable->cdp_pdev_pre_detach
+		 * ->ol_txrx_pdev_pre_detach->ol_tx_free_descs_inuse.
 		 */
 		if (qdf_atomic_read(&tx_desc->ref_cnt)) {
-			ol_txrx_dbg("Warning: freeing tx frame (no compltn)");
-			ol_tx_desc_frame_free_nonstd(pdev,
-						     tx_desc, 1);
+			if (!ol_tx_get_is_mgmt_over_wmi_enabled() &&
+			    tx_desc->pkt_type >= OL_TXRX_MGMT_TYPE_BASE) {
+				qdf_atomic_init(&tx_desc->ref_cnt);
+				ol_txrx_dbg("Pending mgmt frames nbuf unmapped and freed already when vdev destroyed");
+				/* free the tx desc */
+				ol_tx_desc_free(pdev, tx_desc);
+			} else {
+				ol_txrx_dbg("Warning: freeing tx frame (no compltn)");
+				ol_tx_desc_frame_free_nonstd(pdev, tx_desc, 1);
+			}
 			num_freed_tx_desc++;
 		}
 		htt_tx_desc = tx_desc->htt_tx_desc;
@@ -2302,10 +2326,8 @@ static void ol_txrx_flush_cache_rx_queue(void)
 	struct ol_txrx_vdev_t *vdev;
 	ol_txrx_pdev_handle pdev;
 
-	if (qdf_unlikely(!soc)) {
-		ol_txrx_err("soc is NULL");
+	if (qdf_unlikely(!soc))
 		return;
-	}
 
 	pdev = ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
 	if (!pdev)
@@ -3665,10 +3687,8 @@ static QDF_STATUS ol_txrx_wait_for_pending_tx(int timeout)
 	struct ol_txrx_soc_t *soc = cds_get_context(QDF_MODULE_ID_SOC);
 	struct ol_txrx_pdev_t *txrx_pdev;
 
-	if (qdf_unlikely(!soc)) {
-		ol_txrx_err("soc is NULL");
+	if (qdf_unlikely(!soc))
 		return QDF_STATUS_E_FAULT;
-	}
 
 	txrx_pdev = ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
 	if (!txrx_pdev) {
@@ -4864,10 +4884,8 @@ static inline int ol_txrx_drop_nbuf_list(qdf_nbuf_t buf_list)
 	int num_dropped = 0;
 	qdf_nbuf_t buf, next_buf;
 
-	if (qdf_unlikely(!soc)) {
-		ol_txrx_err("soc is NULL");
+	if (qdf_unlikely(!soc))
 		return 0;
-	}
 
 	pdev = ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
 	if (!pdev) {
@@ -5070,10 +5088,8 @@ void ol_rx_data_process(struct ol_txrx_peer_t *peer,
 	 */
 	ol_txrx_rx_fp data_rx = NULL;
 
-	if (qdf_unlikely(!soc)) {
-		ol_txrx_err("soc is NULL");
+	if (qdf_unlikely(!soc))
 		goto drop_rx_buf;
-	}
 
 	pdev = ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
 	if ((!peer) || (!pdev)) {
@@ -5147,10 +5163,16 @@ static QDF_STATUS ol_txrx_register_peer(struct ol_txrx_desc_type *sta_desc)
 {
 	struct ol_txrx_peer_t *peer;
 	struct ol_txrx_soc_t *soc = cds_get_context(QDF_MODULE_ID_SOC);
-	ol_txrx_pdev_handle pdev =
-		ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
+	ol_txrx_pdev_handle pdev;
 	union ol_txrx_peer_update_param_t param;
 	struct privacy_exemption privacy_filter;
+
+	if (!soc) {
+		ol_txrx_err("Soc is NULL");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	pdev = ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
 
 	if (!pdev) {
 		ol_txrx_err("Pdev is NULL");
@@ -5192,12 +5214,18 @@ static QDF_STATUS ol_txrx_register_peer(struct ol_txrx_desc_type *sta_desc)
 static QDF_STATUS ol_txrx_register_ocb_peer(uint8_t *mac_addr)
 {
 	struct ol_txrx_soc_t *soc = cds_get_context(QDF_MODULE_ID_SOC);
-	ol_txrx_pdev_handle pdev =
-		ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
+	ol_txrx_pdev_handle pdev;
 	ol_txrx_peer_handle peer;
 
-	if (!pdev || !soc) {
-		ol_txrx_err("Unable to find pdev or soc!");
+	if (!soc) {
+		ol_txrx_err("Unable to find soc!");
+		return QDF_STATUS_E_FAILURE;
+	}
+
+	pdev = ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
+
+	if (!pdev) {
+		ol_txrx_err("Unable to find pdev!");
 		return QDF_STATUS_E_FAILURE;
 	}
 
@@ -5303,7 +5331,6 @@ static void ol_txrx_offld_flush_handler(void *context,
 	ol_txrx_pdev_handle pdev;
 
 	if (qdf_unlikely(!soc)) {
-		ol_txrx_err("Invalid soc context");
 		qdf_assert(0);
 		return;
 	}
@@ -5340,10 +5367,8 @@ static void ol_txrx_offld_flush(void *data)
 	if (qdf_unlikely(!sched_ctx))
 		return;
 
-	if (qdf_unlikely(!soc)) {
-		ol_txrx_err("soc is NULL");
+	if (qdf_unlikely(!soc))
 		return;
-	}
 
 	pdev = ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
 	if (qdf_unlikely(!pdev)) {
@@ -5383,7 +5408,6 @@ static void ol_register_offld_flush_cb(void (offld_flush_cb)(void *))
 	ol_txrx_pdev_handle pdev;
 
 	if (qdf_unlikely(!soc)) {
-		ol_txrx_err("soc NULL!");
 		TXRX_ASSERT2(0);
 		goto out;
 	}
@@ -5408,7 +5432,6 @@ static void ol_register_offld_flush_cb(void (offld_flush_cb)(void *))
 	hif_device = cds_get_context(QDF_MODULE_ID_HIF);
 
 	if (qdf_unlikely(!hif_device)) {
-		ol_txrx_err("hif_device NULL!");
 		qdf_assert(0);
 		goto out;
 	}
@@ -5433,10 +5456,8 @@ static void ol_deregister_offld_flush_cb(void)
 	struct ol_txrx_soc_t *soc = cds_get_context(QDF_MODULE_ID_SOC);
 	ol_txrx_pdev_handle pdev;
 
-	if (qdf_unlikely(!soc)) {
-		ol_txrx_err("soc is NULL");
+	if (qdf_unlikely(!soc))
 		return;
-	}
 
 	pdev = ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
 	if (!pdev) {
@@ -5446,7 +5467,6 @@ static void ol_deregister_offld_flush_cb(void)
 	hif_device = cds_get_context(QDF_MODULE_ID_HIF);
 
 	if (qdf_unlikely(!hif_device)) {
-		ol_txrx_err("hif_device NULL!");
 		qdf_assert(0);
 		return;
 	}
@@ -5555,8 +5575,10 @@ static void ol_txrx_post_data_stall_event(
 	data_stall_info.recovery_type = recovery_type;
 
 	if (data_stall_info.data_stall_type ==
-				DATA_STALL_LOG_FW_RX_REFILL_FAILED)
+				DATA_STALL_LOG_FW_RX_REFILL_FAILED) {
 		htt_log_rx_ring_info(pdev->htt_pdev);
+		htt_rx_refill_failure(pdev->htt_pdev);
+	}
 
 	pdev->data_stall_detect_callback(&data_stall_info);
 }
@@ -5575,10 +5597,8 @@ struct cdp_vdev *ol_txrx_get_vdev_from_vdev_id(uint8_t vdev_id)
 	struct ol_txrx_soc_t *soc = cds_get_context(QDF_MODULE_ID_SOC);
 	ol_txrx_vdev_handle vdev = NULL;
 
-	if (qdf_unlikely(!soc)) {
-		ol_txrx_err("soc is NULL");
+	if (qdf_unlikely(!soc))
 		return NULL;
-	}
 
 	vdev = ol_txrx_get_vdev_from_soc_vdev_id(soc, vdev_id);
 
@@ -5848,6 +5868,9 @@ static uint32_t ol_txrx_get_cfg(struct cdp_soc_t *soc_hdl, enum cdp_dp_cfg cfg)
 	case cfg_dp_lro_enable:
 		value = cfg_ctx->lro_enable;
 		break;
+	case cfg_dp_sg_enable:
+		value = cfg_ctx->sg_enable;
+		break;
 	case cfg_dp_gro_enable:
 		value = cfg_ctx->gro_enable;
 		break;
@@ -6033,117 +6056,6 @@ void ol_deregister_packetdump_callback(struct cdp_soc_t *soc_hdl,
 	pdev->ol_rx_packetdump_cb = NULL;
 }
 
-#ifdef WLAN_FEATURE_PKT_CAPTURE
-/**
- * ol_txrx_register_pktcapture_cb() - Register pkt capture mode callback
- * @soc: soc handle
- * @pdev_id: pdev id
- * @context: virtual device's osif_dev
- * @cb: callback to register
- *
- * Return: QDF_STATUS Enumeration
- */
-static QDF_STATUS ol_txrx_register_pktcapture_cb(
-					struct cdp_soc_t *soc,
-					uint8_t pdev_id,
-					void *context,
-					QDF_STATUS(cb)(void *, qdf_nbuf_t))
-{
-	struct ol_txrx_pdev_t *pdev = ol_txrx_get_pdev_from_pdev_id(
-					cdp_soc_t_to_ol_txrx_soc_t(soc),
-					pdev_id);
-
-	if (!pdev) {
-		ol_txrx_err("pdev NULL!");
-		return QDF_STATUS_E_INVAL;
-	}
-
-	pdev->mon_osif_dev = context;
-	pdev->mon_cb = cb;
-	return QDF_STATUS_SUCCESS;
-}
-
-/**
- * ol_txrx_deregister_pktcapture_cb() - Register pkt capture mode callback
- * @soc: soc handle
- * @pdev_id: pdev id
- *
- * Return: QDF_STATUS Enumeration
- */
-static QDF_STATUS ol_txrx_deregister_pktcapture_cb(struct cdp_soc_t *soc,
-						   uint8_t pdev_id)
-{
-	ol_txrx_pdev_handle pdev = ol_txrx_get_pdev_from_pdev_id(
-					cdp_soc_t_to_ol_txrx_soc_t(soc),
-					pdev_id);
-
-	if (qdf_unlikely(!pdev)) {
-		qdf_print("%s: pdev is NULL!\n", __func__);
-		qdf_assert(0);
-		return QDF_STATUS_E_INVAL;
-	}
-
-	pdev->mon_osif_dev = NULL;
-	pdev->mon_cb = NULL;
-
-	return QDF_STATUS_SUCCESS;
-}
-
-/**
- * ol_txrx_get_pktcapture_mode() - return pktcapture mode
- * @soc: soc handle
- * @pdev_id: pdev id
- *
- * Return: 0 - disable
- *         1 - Mgmt packets
- *         2 - Data packets
- *         3 - Both Mgmt and Data packets
- */
-static uint8_t ol_txrx_get_pktcapture_mode(struct cdp_soc_t *soc,
-					   uint8_t pdev_id)
-{
-	struct ol_txrx_pdev_t *pdev = ol_txrx_get_pdev_from_pdev_id(
-					cdp_soc_t_to_ol_txrx_soc_t(soc),
-					pdev_id);
-
-	if (!pdev) {
-		qdf_print("%s: pdev is NULL\n", __func__);
-		return 0;
-	}
-
-	if (!pdev->mon_cb || !pdev->mon_osif_dev)
-		return 0;
-
-	return pdev->pktcapture_mode_value;
-}
-
-/**
- * ol_txrx_set_pktcapture_mode() - set pktcapture mode
- * @soc: soc handle
- * @pdev_id: pdev id
- * @val  : 0 - disable
- *         1 - Mgmt packets
- *         2 - Data packets
- *         3 - Both Mgmt and Data packets
- *
- * Return: none
- */
-static void ol_txrx_set_pktcapture_mode(struct cdp_soc_t *soc,
-					uint8_t pdev_id, uint8_t val)
-{
-	struct ol_txrx_pdev_t *pdev = ol_txrx_get_pdev_from_pdev_id(
-					cdp_soc_t_to_ol_txrx_soc_t(soc),
-					pdev_id);
-
-	if (!pdev) {
-		qdf_print("%s: pdev is NULL\n", __func__);
-		return;
-	}
-
-	pdev->pktcapture_mode_value = val;
-}
-#endif /* WLAN_FEATURE_PKT_CAPTURE */
-
 static struct cdp_cmn_ops ol_ops_cmn = {
 	.txrx_soc_attach_target = ol_txrx_soc_attach_target,
 	.txrx_vdev_attach = ol_txrx_vdev_attach,
@@ -6268,8 +6180,10 @@ static struct cdp_ipa_ops ol_ops_ipa = {
 	.ipa_set_perf_level = ol_txrx_ipa_set_perf_level,
 #ifdef FEATURE_METERING
 	.ipa_uc_get_share_stats = ol_txrx_ipa_uc_get_share_stats,
-	.ipa_uc_set_quota = ol_txrx_ipa_uc_set_quota
+	.ipa_uc_set_quota = ol_txrx_ipa_uc_set_quota,
 #endif
+	.ipa_tx_buf_smmu_mapping = ol_txrx_ipa_tx_buf_smmu_mapping,
+	.ipa_tx_buf_smmu_unmapping = ol_txrx_ipa_tx_buf_smmu_unmapping
 };
 #endif
 
@@ -6391,15 +6305,6 @@ static struct cdp_raw_ops ol_ops_raw = {
 	/* EMPTY FOR MCL */
 };
 
-#ifdef WLAN_FEATURE_PKT_CAPTURE
-static struct cdp_pktcapture_ops ol_ops_pkt_capture = {
-	.txrx_pktcapture_cb_register = ol_txrx_register_pktcapture_cb,
-	.txrx_pktcapture_cb_deregister = ol_txrx_deregister_pktcapture_cb,
-	.txrx_pktcapture_set_mode = ol_txrx_set_pktcapture_mode,
-	.txrx_pktcapture_get_mode = ol_txrx_get_pktcapture_mode,
-};
-#endif /* #ifdef WLAN_FEATURE_PKT_CAPTURE */
-
 static struct cdp_ops ol_txrx_ops = {
 	.cmn_drv_ops = &ol_ops_cmn,
 	.ctrl_ops = &ol_ops_ctrl,
@@ -6427,9 +6332,6 @@ static struct cdp_ops ol_txrx_ops = {
 	.mob_stats_ops = &ol_ops_mob_stats,
 	.delay_ops = &ol_ops_delay,
 	.pmf_ops = &ol_ops_pmf,
-#ifdef WLAN_FEATURE_PKT_CAPTURE
-	.pktcapture_ops = &ol_ops_pkt_capture,
-#endif
 };
 
 ol_txrx_soc_handle ol_txrx_soc_attach(void *scn_handle,
@@ -6475,10 +6377,8 @@ bool ol_txrx_get_peer_unmap_conf_support(void)
 	struct ol_txrx_soc_t *soc = cds_get_context(QDF_MODULE_ID_SOC);
 	ol_txrx_pdev_handle pdev;
 
-	if (qdf_unlikely(!soc)) {
-		ol_txrx_err("soc is NULL");
+	if (qdf_unlikely(!soc))
 		return false;
-	}
 
 	pdev = ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
 	if (!pdev) {
@@ -6493,10 +6393,8 @@ void ol_txrx_set_peer_unmap_conf_support(bool val)
 	struct ol_txrx_soc_t *soc = cds_get_context(QDF_MODULE_ID_SOC);
 	ol_txrx_pdev_handle pdev;
 
-	if (qdf_unlikely(!soc)) {
-		ol_txrx_err("soc is NULL");
+	if (qdf_unlikely(!soc))
 		return;
-	}
 
 	pdev = ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
 	if (!pdev) {
@@ -6512,10 +6410,8 @@ bool ol_txrx_get_tx_compl_tsf64(void)
 	struct ol_txrx_soc_t *soc = cds_get_context(QDF_MODULE_ID_SOC);
 	ol_txrx_pdev_handle pdev;
 
-	if (qdf_unlikely(!soc)) {
-		ol_txrx_err("soc is NULL");
+	if (qdf_unlikely(!soc))
 		return false;
-	}
 
 	pdev = ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
 	if (!pdev) {
@@ -6530,10 +6426,8 @@ void ol_txrx_set_tx_compl_tsf64(bool val)
 	struct ol_txrx_soc_t *soc = cds_get_context(QDF_MODULE_ID_SOC);
 	ol_txrx_pdev_handle pdev;
 
-	if (qdf_unlikely(!soc)) {
-		ol_txrx_err("soc is NULL");
+	if (qdf_unlikely(!soc))
 		return;
-	}
 
 	pdev = ol_txrx_get_pdev_from_pdev_id(soc, OL_TXRX_PDEV_ID);
 	if (!pdev) {

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -39,7 +39,8 @@
 #include "qdf_status.h"
 #include "hif_debug.h"
 #include "mp_dev.h"
-#if defined(QCA_WIFI_QCA8074) || defined(QCA_WIFI_QCA6018)
+#if defined(QCA_WIFI_QCA8074) || defined(QCA_WIFI_QCA6018) || \
+	defined(QCA_WIFI_QCA5018)
 #include "hal_api.h"
 #endif
 #include "hif_napi.h"
@@ -93,6 +94,15 @@ void hif_srng_init_phase(struct hif_opaque_softc *hif_ctx,
 }
 #endif /* FORCE_WAKE */
 
+#ifdef HIF_IPCI
+void hif_shutdown_notifier_cb(void *hif_ctx)
+{
+	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
+
+	scn->recovery = true;
+}
+#endif
+
 /**
  * hif_vote_link_down(): unvote for link up
  *
@@ -113,7 +123,7 @@ void hif_vote_link_down(struct hif_opaque_softc *hif_ctx)
 
 	QDF_BUG(scn);
 	scn->linkstate_vote--;
-	HIF_INFO("Down_linkstate_vote %d", scn->linkstate_vote);
+	hif_info("Down_linkstate_vote %d", scn->linkstate_vote);
 	if (scn->linkstate_vote == 0)
 		hif_bus_prevent_linkdown(scn, false);
 }
@@ -135,7 +145,7 @@ void hif_vote_link_up(struct hif_opaque_softc *hif_ctx)
 
 	QDF_BUG(scn);
 	scn->linkstate_vote++;
-	HIF_INFO("Up_linkstate_vote %d", scn->linkstate_vote);
+	hif_info("Up_linkstate_vote %d", scn->linkstate_vote);
 	if (scn->linkstate_vote == 1)
 		hif_bus_prevent_linkdown(scn, true);
 }
@@ -246,8 +256,7 @@ void hif_save_htc_htt_config_endpoint(struct hif_opaque_softc *hif_ctx,
 	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
 
 	if (!scn) {
-		HIF_ERROR("%s: error: scn or scn->hif_sc is NULL!",
-		       __func__);
+		hif_err("scn or scn->hif_sc is NULL!");
 		return;
 	}
 
@@ -413,6 +422,21 @@ void *hif_get_dev_ba(struct hif_opaque_softc *hif_handle)
 }
 qdf_export_symbol(hif_get_dev_ba);
 
+/**
+ * hif_get_dev_ba_ce(): API to get device ce base address.
+ * @scn: scn
+ *
+ * Return: dev mem base address for CE
+ */
+void *hif_get_dev_ba_ce(struct hif_opaque_softc *hif_handle)
+{
+	struct hif_softc *scn = (struct hif_softc *)hif_handle;
+
+	return scn->mem_ce;
+}
+
+qdf_export_symbol(hif_get_dev_ba_ce);
+
 #ifdef WLAN_CE_INTERRUPT_THRESHOLD_CONFIG
 /**
  * hif_get_cfg_from_psoc() - Retrieve ini cfg from psoc
@@ -441,6 +465,93 @@ void hif_get_cfg_from_psoc(struct hif_softc *scn,
 {
 }
 #endif /* WLAN_CE_INTERRUPT_THRESHOLD_CONFIG */
+
+#if defined(HIF_CE_LOG_INFO) || defined(HIF_BUS_LOG_INFO)
+/**
+ * hif_recovery_notifier_cb - Recovery notifier callback to log
+ *  hang event data
+ * @block: notifier block
+ * @state: state
+ * @data: notifier data
+ *
+ * Return: status
+ */
+static
+int hif_recovery_notifier_cb(struct notifier_block *block, unsigned long state,
+			     void *data)
+{
+	struct qdf_notifer_data *notif_data = data;
+	qdf_notif_block *notif_block;
+	struct hif_softc *hif_handle;
+	bool bus_id_invalid;
+
+	if (!data || !block)
+		return -EINVAL;
+
+	notif_block = qdf_container_of(block, qdf_notif_block, notif_block);
+
+	hif_handle = notif_block->priv_data;
+	if (!hif_handle)
+		return -EINVAL;
+
+	bus_id_invalid = hif_log_bus_info(hif_handle, notif_data->hang_data,
+					  &notif_data->offset);
+	if (bus_id_invalid)
+		return NOTIFY_STOP_MASK;
+
+	hif_log_ce_info(hif_handle, notif_data->hang_data,
+			&notif_data->offset);
+
+	return 0;
+}
+
+/**
+ * hif_register_recovery_notifier - Register hif recovery notifier
+ * @hif_handle: hif handle
+ *
+ * Return: status
+ */
+static
+QDF_STATUS hif_register_recovery_notifier(struct hif_softc *hif_handle)
+{
+	qdf_notif_block *hif_notifier;
+
+	if (!hif_handle)
+		return QDF_STATUS_E_FAILURE;
+
+	hif_notifier = &hif_handle->hif_recovery_notifier;
+
+	hif_notifier->notif_block.notifier_call = hif_recovery_notifier_cb;
+	hif_notifier->priv_data = hif_handle;
+	return qdf_hang_event_register_notifier(hif_notifier);
+}
+
+/**
+ * hif_unregister_recovery_notifier - Un-register hif recovery notifier
+ * @hif_handle: hif handle
+ *
+ * Return: status
+ */
+static
+QDF_STATUS hif_unregister_recovery_notifier(struct hif_softc *hif_handle)
+{
+	qdf_notif_block *hif_notifier = &hif_handle->hif_recovery_notifier;
+
+	return qdf_hang_event_unregister_notifier(hif_notifier);
+}
+#else
+static inline
+QDF_STATUS hif_register_recovery_notifier(struct hif_softc *hif_handle)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline
+QDF_STATUS hif_unregister_recovery_notifier(struct hif_softc *hif_handle)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
 
 #ifdef HIF_CPU_PERF_AFFINE_MASK
 /**
@@ -529,89 +640,6 @@ static void hif_cpuhp_unregister(struct hif_softc *scn)
 }
 #endif /* ifdef HIF_CPU_PERF_AFFINE_MASK */
 
-#if defined(HIF_CE_LOG_INFO) || defined(HIF_BUS_LOG_INFO)
-/**
- * hif_recovery_notifier_cb - Recovery notifier callback to log
- *  hang event data
- * @block: notifier block
- * @state: state
- * @data: notifier data
- *
- * Return: status
- */
-static
-int hif_recovery_notifier_cb(struct notifier_block *block, unsigned long state,
-			     void *data)
-{
-	struct qdf_notifer_data *notif_data = data;
-	qdf_notif_block *notif_block;
-	struct hif_softc *hif_handle;
-
-	if (!data || !block)
-		return -EINVAL;
-
-	notif_block = qdf_container_of(block, qdf_notif_block, notif_block);
-
-	hif_handle = notif_block->priv_data;
-	if (!hif_handle)
-		return -EINVAL;
-
-	hif_log_bus_info(hif_handle, notif_data->hang_data,
-			 &notif_data->offset);
-	hif_log_ce_info(hif_handle, notif_data->hang_data,
-			&notif_data->offset);
-
-	return 0;
-}
-
-/**
- * hif_register_recovery_notifier - Register hif recovery notifier
- * @hif_handle: hif handle
- *
- * Return: status
- */
-static
-QDF_STATUS hif_register_recovery_notifier(struct hif_softc *hif_handle)
-{
-	qdf_notif_block *hif_notifier;
-
-	if (!hif_handle)
-		return QDF_STATUS_E_FAILURE;
-
-	hif_notifier = &hif_handle->hif_recovery_notifier;
-
-	hif_notifier->notif_block.notifier_call = hif_recovery_notifier_cb;
-	hif_notifier->priv_data = hif_handle;
-	return qdf_hang_event_register_notifier(hif_notifier);
-}
-
-/**
- * hif_unregister_recovery_notifier - Un-register hif recovery notifier
- * @hif_handle: hif handle
- *
- * Return: status
- */
-static
-QDF_STATUS hif_unregister_recovery_notifier(struct hif_softc *hif_handle)
-{
-	qdf_notif_block *hif_notifier = &hif_handle->hif_recovery_notifier;
-
-	return qdf_hang_event_unregister_notifier(hif_notifier);
-}
-#else
-static inline
-QDF_STATUS hif_register_recovery_notifier(struct hif_softc *hif_handle)
-{
-	return QDF_STATUS_SUCCESS;
-}
-
-static inline
-QDF_STATUS hif_unregister_recovery_notifier(struct hif_softc *hif_handle)
-{
-	return QDF_STATUS_SUCCESS;
-}
-#endif
-
 struct hif_opaque_softc *hif_open(qdf_device_t qdf_ctx,
 				  uint32_t mode,
 				  enum qdf_bus_type bus_type,
@@ -623,16 +651,13 @@ struct hif_opaque_softc *hif_open(qdf_device_t qdf_ctx,
 	int bus_context_size = hif_bus_get_context_size(bus_type);
 
 	if (bus_context_size == 0) {
-		HIF_ERROR("%s: context size 0 not allowed", __func__);
+		hif_err("context size 0 not allowed");
 		return NULL;
 	}
 
 	scn = (struct hif_softc *)qdf_mem_malloc(bus_context_size);
-	if (!scn) {
-		HIF_ERROR("%s: cannot alloc memory for HIF context of size:%d",
-						__func__, bus_context_size);
+	if (!scn)
 		return GET_HIF_OPAQUE_HDL(scn);
-	}
 
 	scn->qdf_dev = qdf_ctx;
 	scn->hif_con_param = mode;
@@ -644,13 +669,14 @@ struct hif_opaque_softc *hif_open(qdf_device_t qdf_ctx,
 		     sizeof(struct hif_driver_state_callbacks));
 	scn->bus_type  = bus_type;
 
+	hif_pm_set_link_state(GET_HIF_OPAQUE_HDL(scn), HIF_PM_LINK_STATE_DOWN);
 	hif_get_cfg_from_psoc(scn, psoc);
 
 	hif_set_event_hist_mask(GET_HIF_OPAQUE_HDL(scn));
 	status = hif_bus_open(scn, bus_type);
 	if (status != QDF_STATUS_SUCCESS) {
-		HIF_ERROR("%s: hif_bus_open error = %d, bus_type = %d",
-				  __func__, status, bus_type);
+		hif_err("hif_bus_open error = %d, bus_type = %d",
+			status, bus_type);
 		qdf_mem_free(scn);
 		scn = NULL;
 	}
@@ -687,7 +713,7 @@ void hif_close(struct hif_opaque_softc *hif_ctx)
 	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
 
 	if (!scn) {
-		HIF_ERROR("%s: hif_opaque_softc is NULL", __func__);
+		hif_err("hif_opaque_softc is NULL");
 		return;
 	}
 
@@ -704,6 +730,7 @@ void hif_close(struct hif_opaque_softc *hif_ctx)
 	}
 
 	hif_uninit_rri_on_ddr(scn);
+	hif_cleanup_static_buf_to_target(scn);
 	hif_cpuhp_unregister(scn);
 
 	hif_bus_close(scn);
@@ -780,9 +807,9 @@ QDF_STATUS hif_try_complete_tasks(struct hif_softc *scn)
 }
 
 #if (defined(QCA_WIFI_QCA8074) || defined(QCA_WIFI_QCA6018) || \
-     defined(QCA_WIFI_QCA6290) || defined(QCA_WIFI_QCA6390) || \
-     defined(QCA_WIFI_QCN9000) || defined(QCA_WIFI_QCA6490) || \
-     defined(QCA_WIFI_QCA6750))
+	defined(QCA_WIFI_QCA6290) || defined(QCA_WIFI_QCA6390) || \
+	defined(QCA_WIFI_QCN9000) || defined(QCA_WIFI_QCA6490) || \
+	defined(QCA_WIFI_QCA6750) || defined(QCA_WIFI_QCA5018))
 static QDF_STATUS hif_hal_attach(struct hif_softc *scn)
 {
 	if (ce_srng_based(scn)) {
@@ -817,6 +844,28 @@ static QDF_STATUS hif_hal_detach(struct hif_softc *scn)
 }
 #endif
 
+int hif_init_dma_mask(struct device *dev, enum qdf_bus_type bus_type)
+{
+	int ret;
+
+	switch (bus_type) {
+	case QDF_BUS_TYPE_IPCI:
+		ret = qdf_set_dma_coherent_mask(dev,
+						DMA_COHERENT_MASK_DEFAULT);
+		if (ret) {
+			hif_err("Failed to set dma mask error = %d", ret);
+			return ret;
+		}
+
+		break;
+	default:
+		/* Follow the existing sequence for other targets */
+		break;
+	}
+
+	return 0;
+}
+
 /**
  * hif_enable(): hif_enable
  * @hif_ctx: hif_ctx
@@ -838,25 +887,25 @@ QDF_STATUS hif_enable(struct hif_opaque_softc *hif_ctx, struct device *dev,
 	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
 
 	if (!scn) {
-		HIF_ERROR("%s: hif_ctx = NULL", __func__);
+		hif_err("hif_ctx = NULL");
 		return QDF_STATUS_E_NULL_VALUE;
 	}
 
 	status = hif_enable_bus(scn, dev, bdev, bid, type);
 	if (status != QDF_STATUS_SUCCESS) {
-		HIF_ERROR("%s: hif_enable_bus error = %d",
-				  __func__, status);
+		hif_err("hif_enable_bus error = %d", status);
 		return status;
 	}
 
+	hif_pm_set_link_state(GET_HIF_OPAQUE_HDL(scn), HIF_PM_LINK_STATE_UP);
 	status = hif_hal_attach(scn);
 	if (status != QDF_STATUS_SUCCESS) {
-		HIF_ERROR("%s: hal attach failed", __func__);
+		hif_err("hal attach failed");
 		goto disable_bus;
 	}
 
 	if (hif_bus_configure(scn)) {
-		HIF_ERROR("%s: Target probe failed.", __func__);
+		hif_err("Target probe failed");
 		status = QDF_STATUS_E_FAILURE;
 		goto hal_detach;
 	}
@@ -874,7 +923,7 @@ QDF_STATUS hif_enable(struct hif_opaque_softc *hif_ctx, struct device *dev,
 
 	scn->hif_init_done = true;
 
-	HIF_DBG("%s: OK", __func__);
+	hif_debug("OK");
 
 	return QDF_STATUS_SUCCESS;
 
@@ -902,13 +951,14 @@ void hif_disable(struct hif_opaque_softc *hif_ctx, enum hif_disable_type type)
 
 	hif_hal_detach(scn);
 
+	hif_pm_set_link_state(hif_ctx, HIF_PM_LINK_STATE_DOWN);
 	hif_disable_bus(scn);
 
 	hif_wlan_disable(scn);
 
 	scn->notice_send = false;
 
-	HIF_DBG("%s: X", __func__);
+	hif_debug("X");
 }
 
 #ifdef CE_TASKLET_DEBUG_ENABLE
@@ -941,8 +991,7 @@ void hif_clear_stats(struct hif_opaque_softc *hif_ctx)
  *
  * Return: n/a
  */
-#if defined(TARGET_RAMDUMP_AFTER_KERNEL_PANIC) \
-&& defined(DEBUG)
+#if defined(TARGET_RAMDUMP_AFTER_KERNEL_PANIC) && defined(WLAN_FEATURE_BMI)
 
 static void hif_crash_shutdown_dump_bus_register(void *hif_ctx)
 {
@@ -952,7 +1001,7 @@ static void hif_crash_shutdown_dump_bus_register(void *hif_ctx)
 		return;
 
 	if (hif_dump_registers(scn))
-		HIF_ERROR("Failed to dump bus registers!");
+		hif_err("Failed to dump bus registers!");
 }
 
 /**
@@ -972,28 +1021,27 @@ void hif_crash_shutdown(struct hif_opaque_softc *hif_ctx)
 		return;
 
 	if (scn->bus_type == QDF_BUS_TYPE_SNOC) {
-		HIF_INFO_MED("%s: RAM dump disabled for bustype %d",
-				__func__, scn->bus_type);
+		hif_warn("RAM dump disabled for bustype %d", scn->bus_type);
 		return;
 	}
 
 	if (TARGET_STATUS_RESET == scn->target_status) {
-		HIF_INFO_MED("%s: Target is already asserted, ignore!",
-			    __func__);
+		hif_warn("Target is already asserted, ignore!");
 		return;
 	}
 
 	if (hif_is_load_or_unload_in_progress(scn)) {
-		HIF_ERROR("%s: Load/unload is in progress, ignore!", __func__);
+		hif_err("Load/unload is in progress, ignore!");
 		return;
 	}
 
 	hif_crash_shutdown_dump_bus_register(hif_ctx);
+	hif_set_target_status(hif_ctx, TARGET_STATUS_RESET);
 
 	if (ol_copy_ramdump(hif_ctx))
 		goto out;
 
-	HIF_INFO_MED("%s: RAM dump collecting completed!", __func__);
+	hif_info("RAM dump collecting completed!");
 
 out:
 	return;
@@ -1001,8 +1049,7 @@ out:
 #else
 void hif_crash_shutdown(struct hif_opaque_softc *hif_ctx)
 {
-	HIF_INFO_MED("%s: Collecting target RAM dump disabled",
-		__func__);
+	hif_debug("Collecting target RAM dump disabled");
 }
 #endif /* TARGET_RAMDUMP_AFTER_KERNEL_PANIC */
 
@@ -1076,8 +1123,8 @@ int hif_get_device_type(uint32_t device_id,
 			break;
 
 		default:
-			HIF_ERROR("%s: error - dev_id = 0x%x, rev_id = 0x%x",
-				   __func__, device_id, revision_id);
+			hif_err("dev_id = 0x%x, rev_id = 0x%x",
+				device_id, revision_id);
 			ret = -ENODEV;
 			goto end;
 		}
@@ -1086,50 +1133,56 @@ int hif_get_device_type(uint32_t device_id,
 	case AR9887_DEVICE_ID:
 		*hif_type = HIF_TYPE_AR9888;
 		*target_type = TARGET_TYPE_AR9888;
-		HIF_INFO(" *********** AR9887 **************");
+		hif_info(" *********** AR9887 **************");
 		break;
 
 	case QCA9984_DEVICE_ID:
 		*hif_type = HIF_TYPE_QCA9984;
 		*target_type = TARGET_TYPE_QCA9984;
-		HIF_INFO(" *********** QCA9984 *************");
+		hif_info(" *********** QCA9984 *************");
 		break;
 
 	case QCA9888_DEVICE_ID:
 		*hif_type = HIF_TYPE_QCA9888;
 		*target_type = TARGET_TYPE_QCA9888;
-		HIF_INFO(" *********** QCA9888 *************");
+		hif_info(" *********** QCA9888 *************");
 		break;
 
 	case AR900B_DEVICE_ID:
 		*hif_type = HIF_TYPE_AR900B;
 		*target_type = TARGET_TYPE_AR900B;
-		HIF_INFO(" *********** AR900B *************");
+		hif_info(" *********** AR900B *************");
 		break;
 
 	case IPQ4019_DEVICE_ID:
 		*hif_type = HIF_TYPE_IPQ4019;
 		*target_type = TARGET_TYPE_IPQ4019;
-		HIF_INFO(" *********** IPQ4019  *************");
+		hif_info(" *********** IPQ4019  *************");
 		break;
 
 	case QCA8074_DEVICE_ID:
 		*hif_type = HIF_TYPE_QCA8074;
 		*target_type = TARGET_TYPE_QCA8074;
-		HIF_INFO(" *********** QCA8074  *************\n");
+		hif_info(" *********** QCA8074  *************");
 		break;
 
 	case QCA6290_EMULATION_DEVICE_ID:
 	case QCA6290_DEVICE_ID:
 		*hif_type = HIF_TYPE_QCA6290;
 		*target_type = TARGET_TYPE_QCA6290;
-		HIF_INFO(" *********** QCA6290EMU *************\n");
+		hif_info(" *********** QCA6290EMU *************");
 		break;
 
 	case QCN9000_DEVICE_ID:
 		*hif_type = HIF_TYPE_QCN9000;
 		*target_type = TARGET_TYPE_QCN9000;
-		HIF_INFO(" *********** QCN9000 *************\n");
+		hif_info(" *********** QCN9000 *************");
+		break;
+
+	case QCN6122_DEVICE_ID:
+		*hif_type = HIF_TYPE_QCN6122;
+		*target_type = TARGET_TYPE_QCN6122;
+		hif_info(" *********** QCN6122 *************");
 		break;
 
 	case QCN7605_DEVICE_ID:
@@ -1139,34 +1192,34 @@ int hif_get_device_type(uint32_t device_id,
 	case QCN7605_COMPOSITE_V2:
 		*hif_type = HIF_TYPE_QCN7605;
 		*target_type = TARGET_TYPE_QCN7605;
-		HIF_INFO(" *********** QCN7605 *************\n");
+		hif_info(" *********** QCN7605 *************");
 		break;
 
 	case QCA6390_DEVICE_ID:
 	case QCA6390_EMULATION_DEVICE_ID:
 		*hif_type = HIF_TYPE_QCA6390;
 		*target_type = TARGET_TYPE_QCA6390;
-		HIF_INFO(" *********** QCA6390 *************\n");
+		hif_info(" *********** QCA6390 *************");
 		break;
 
 	case QCA6490_DEVICE_ID:
 	case QCA6490_EMULATION_DEVICE_ID:
 		*hif_type = HIF_TYPE_QCA6490;
 		*target_type = TARGET_TYPE_QCA6490;
-		HIF_INFO(" *********** QCA6490 *************\n");
+		hif_info(" *********** QCA6490 *************");
 		break;
 
 	case QCA6750_DEVICE_ID:
 	case QCA6750_EMULATION_DEVICE_ID:
 		*hif_type = HIF_TYPE_QCA6750;
 		*target_type = TARGET_TYPE_QCA6750;
-		HIF_INFO(" *********** QCA6750 *************\n");
+		hif_info(" *********** QCA6750 *************");
 		break;
 
 	case QCA8074V2_DEVICE_ID:
 		*hif_type = HIF_TYPE_QCA8074V2;
 		*target_type = TARGET_TYPE_QCA8074V2;
-		HIF_INFO(" *********** QCA8074V2 *************\n");
+		hif_info(" *********** QCA8074V2 *************");
 		break;
 
 	case QCA6018_DEVICE_ID:
@@ -1178,18 +1231,23 @@ int hif_get_device_type(uint32_t device_id,
 	case RUMIM2M_DEVICE_ID_NODE5:
 		*hif_type = HIF_TYPE_QCA6018;
 		*target_type = TARGET_TYPE_QCA6018;
-		HIF_INFO(" *********** QCA6018 *************\n");
+		hif_info(" *********** QCA6018 *************");
+		break;
+
+	case QCA5018_DEVICE_ID:
+		*hif_type = HIF_TYPE_QCA5018;
+		*target_type = TARGET_TYPE_QCA5018;
+		hif_info(" *********** qca5018 *************");
 		break;
 
 	default:
-		HIF_ERROR("%s: Unsupported device ID = 0x%x!",
-			  __func__, device_id);
+		hif_err("Unsupported device ID = 0x%x!", device_id);
 		ret = -ENODEV;
 		break;
 	}
 
 	if (*target_type == TARGET_TYPE_UNKNOWN) {
-		HIF_ERROR("%s: Unsupported target_type!", __func__);
+		hif_err("Unsupported target_type!");
 		ret = -ENODEV;
 	}
 end:
@@ -1252,7 +1310,7 @@ void hif_offld_flush_cb_register(struct hif_opaque_softc *scn,
 	if (hif_napi_enabled(scn, -1))
 		hif_napi_rx_offld_flush_cb_register(scn, offld_flush_handler);
 	else
-		HIF_ERROR("NAPI not enabled\n");
+		hif_err("NAPI not enabled");
 }
 qdf_export_symbol(hif_offld_flush_cb_register);
 
@@ -1261,7 +1319,7 @@ void hif_offld_flush_cb_deregister(struct hif_opaque_softc *scn)
 	if (hif_napi_enabled(scn, -1))
 		hif_napi_rx_offld_flush_cb_deregister(scn);
 	else
-		HIF_ERROR("NAPI not enabled\n");
+		hif_err("NAPI not enabled");
 }
 qdf_export_symbol(hif_offld_flush_cb_deregister);
 
@@ -1444,14 +1502,12 @@ void hif_update_pipe_callback(struct hif_opaque_softc *osc,
 
 	QDF_BUG(pipeid < CE_COUNT_MAX);
 
-	HIF_INFO_LO("+%s pipeid %d\n", __func__, pipeid);
+	hif_debug("pipeid: %d", pipeid);
 
 	pipe_info = &hif_state->pipe_info[pipeid];
 
 	qdf_mem_copy(&pipe_info->pipe_callbacks,
 			callbacks, sizeof(pipe_info->pipe_callbacks));
-
-	HIF_INFO_LO("-%s\n", __func__);
 }
 qdf_export_symbol(hif_update_pipe_callback);
 
@@ -1519,7 +1575,7 @@ void *hif_mem_alloc_consistent_unaligned(struct hif_softc *scn,
 end:
 	dp_info("%s va_unaligned %pK pa_unaligned %pK size %d ring_type %d",
 		*is_mem_prealloc ? "pre-alloc" : "dynamic-alloc", vaddr,
-		(void *)*paddr, size, ring_type);
+		(void *)*paddr, (int)size, ring_type);
 
 	return vaddr;
 }
@@ -1600,6 +1656,9 @@ QDF_STATUS hif_send_single(struct hif_opaque_softc *osc, qdf_nbuf_t msdu,
 {
 	void *ce_tx_hdl = hif_get_ce_handle(osc, CE_HTT_TX_CE);
 
+	if (!ce_tx_hdl)
+		return QDF_STATUS_E_NULL_VALUE;
+
 	return ce_send_single((struct CE_handle *)ce_tx_hdl, msdu, transfer_id,
 			len);
 }
@@ -1654,12 +1713,19 @@ void hif_ramdump_handler(struct hif_opaque_softc *scn)
 		hif_usb_ramdump_handler(scn);
 }
 
+hif_pm_wake_irq_type hif_pm_get_wake_irq_type(struct hif_opaque_softc *hif_ctx)
+{
+	struct hif_softc *scn = HIF_GET_SOFTC(hif_ctx);
+
+	return scn->wake_irq_type;
+}
+
 irqreturn_t hif_wake_interrupt_handler(int irq, void *context)
 {
 	struct hif_softc *scn = context;
 	struct hif_opaque_softc *hif_ctx = GET_HIF_OPAQUE_HDL(scn);
 
-	HIF_INFO("wake interrupt received on irq %d", irq);
+	hif_info("wake interrupt received on irq %d", irq);
 
 	if (hif_pm_runtime_get_monitor_wake_intr(hif_ctx)) {
 		hif_pm_runtime_set_monitor_wake_intr(hif_ctx, 0);

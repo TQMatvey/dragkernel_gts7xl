@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2019-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -107,6 +108,7 @@ enum dhcp_nego_status {
  * @STA_INFO_CLEAR_CACHED_STA_INFO:     Clear the cached sta info
  * @STA_INFO_ATTACH_DETACH:             Station info attach/detach
  * @STA_INFO_SHOW:     Station info show
+ * @STA_INFO_SON_GET_DATRATE_INFO: gets datarate info for a SON node
  *
  */
 /*
@@ -144,7 +146,7 @@ typedef enum {
 	STA_INFO_CLEAR_CACHED_STA_INFO = 27,
 	STA_INFO_ATTACH_DETACH = 28,
 	STA_INFO_SHOW = 29,
-
+	STA_INFO_SON_GET_DATRATE_INFO = 32,
 	STA_INFO_ID_MAX,
 } wlan_sta_info_dbgid;
 
@@ -161,6 +163,7 @@ char *sta_info_string_from_dbgid(wlan_sta_info_dbgid id);
 /**
  * struct hdd_station_info - Per station structure kept in HDD for
  *                                     multiple station support for SoftAP
+ * @sta_node: The sta_info node for the station info list maintained in adapter
  * @in_use: Is the station entry in use?
  * @sta_id: Station ID reported back from HAL (through SAP).
  *           Broadcast uses station ID zero by default.
@@ -173,6 +176,8 @@ char *sta_info_string_from_dbgid(wlan_sta_info_dbgid id);
  * @nss: Number of spatial streams supported
  * @rate_flags: Rate Flags for this connection
  * @ecsa_capable: Extended CSA capabilities
+ * @ext_cap: The first 4 bytes of Extended capabilities IE
+ * @supported_band: sta band capabilities bitmap from supporting opclass
  * @max_phy_rate: Calcuated maximum phy rate based on mode, nss, mcs etc.
  * @tx_packets: The number of frames from host to firmware
  * @tx_bytes: Bytes send to current station
@@ -184,13 +189,17 @@ char *sta_info_string_from_dbgid(wlan_sta_info_dbgid id);
  * @rx_rate: Rx rate with current station reported from F/W
  * @ampdu: Ampdu enable or not of the station
  * @sgi_enable: Short GI enable or not of the station
+ * @guard_interval: Guard interval
  * @tx_stbc: Tx Space-time block coding enable/disable
  * @rx_stbc: Rx Space-time block coding enable/disable
  * @ch_width: Channel Width of the connection
  * @mode: Mode of the connection
  * @max_supp_idx: Max supported rate index of the station
  * @max_ext_idx: Max extended supported rate index of the station
- * @max_mcs_idx: Max supported mcs index of the station
+ * @max_mcs_idx: Max supported mcs index from ht cap of the station
+ * @max_real_mcs_idx: Max supported mcs index from biggest cap of the station.
+ *                    For example, if station supports HE , first check he cap,
+ *                    then vht cap and so on.
  * @rx_mcs_map: VHT Rx mcs map
  * @tx_mcs_map: VHT Tx mcs map
  * @freq : Frequency of the current station
@@ -211,25 +220,23 @@ char *sta_info_string_from_dbgid(wlan_sta_info_dbgid id);
  * MSB of rx_mc_bc_cnt indicates whether FW supports rx_mc_bc_cnt
  * feature or not, if first bit is 1 it indicates that FW supports this
  * feature, if it is 0 it indicates FW doesn't support this feature
- * @tx_failed: the number of tx failed frames
- * @peer_rssi_per_chain: the average value of RSSI (dbm) per chain
  * @tx_retry_succeed: the number of frames retried but successfully transmit
- * @rx_last_pkt_rssi: the rssi (dbm) calculate by last packet
- * @tx_retry: the number of retried frames from host to firmware
  * @tx_retry_exhaust: the number of frames retried but finally failed
  *                    from host to firmware
  * @tx_total_fw: the number of all frames from firmware to remote station
  * @tx_retry_fw: the number of retried frames from firmware to remote station
  * @tx_retry_exhaust_fw: the number of frames retried but finally failed from
  *                    firmware to remote station
- * @sta_info: The sta_info node for the station info list maintained in adapter
+ * @rx_fcs_count: the number of frames received with fcs error
  * @assoc_req_ies: Assoc request IEs of the peer station
  * @ref_cnt: Reference count to synchronize sta_info access
  * @ref_cnt_dbgid: Reference count to debug sta_info synchronization issues
  * @pending_eap_frm_type: EAP frame type in tx queue without tx completion
  * @is_attached: Flag to check if the stainfo is attached/detached
+ * @peer_rssi_per_chain: Average value of RSSI (dbm) per chain
  */
 struct hdd_station_info {
+	qdf_list_node_t sta_node;
 	bool in_use;
 	uint8_t sta_id;
 	eStationType sta_type;
@@ -240,6 +247,8 @@ struct hdd_station_info {
 	uint8_t   nss;
 	uint32_t  rate_flags;
 	uint8_t   ecsa_capable;
+	uint32_t ext_cap;
+	uint8_t supported_band;
 	uint32_t max_phy_rate;
 	uint32_t tx_packets;
 	uint64_t tx_bytes;
@@ -252,6 +261,7 @@ struct hdd_station_info {
 	uint32_t rx_rate;
 	bool ampdu;
 	bool sgi_enable;
+	enum txrate_gi guard_interval;
 	bool tx_stbc;
 	bool rx_stbc;
 	tSirMacHTChannelWidth ch_width;
@@ -259,6 +269,7 @@ struct hdd_station_info {
 	uint8_t max_supp_idx;
 	uint8_t max_ext_idx;
 	uint8_t max_mcs_idx;
+	uint8_t max_real_mcs_idx;
 	uint8_t rx_mcs_map;
 	uint8_t tx_mcs_map;
 	uint32_t freq;
@@ -275,21 +286,18 @@ struct hdd_station_info {
 	uint8_t support_mode;
 	uint32_t rx_retry_cnt;
 	uint32_t rx_mc_bc_cnt;
-	uint32_t tx_failed;
-	uint32_t peer_rssi_per_chain[WMI_MAX_CHAINS];
 	uint32_t tx_retry_succeed;
-	uint32_t rx_last_pkt_rssi;
-	uint32_t tx_retry;
 	uint32_t tx_retry_exhaust;
 	uint32_t tx_total_fw;
 	uint32_t tx_retry_fw;
 	uint32_t tx_retry_exhaust_fw;
-	qdf_list_node_t sta_node;
-	struct wlan_ies assoc_req_ies;
+	uint32_t rx_fcs_count;
+	struct element_info assoc_req_ies;
 	qdf_atomic_t ref_cnt;
 	qdf_atomic_t ref_cnt_dbgid[STA_INFO_ID_MAX];
 	unsigned long pending_eap_frm_type;
 	bool is_attached;
+	int32_t peer_rssi_per_chain[WMI_MAX_CHAINS];
 };
 
 /**
@@ -466,8 +474,8 @@ hdd_get_next_sta_info_no_lock(struct hdd_sta_info_obj *sta_info_container,
 #define __hdd_take_ref_and_fetch_next_sta_info_safe(sta_info_container, \
 						    sta_info, next_sta_info, \
 						    sta_info_dbgid) \
-	sta_info = next_sta_info, \
 	qdf_spin_lock_bh(&sta_info_container.sta_obj_lock), \
+	sta_info = next_sta_info, \
 	hdd_get_next_sta_info_no_lock(&sta_info_container, sta_info, \
 				      &next_sta_info), \
 	(next_sta_info) ? hdd_take_sta_info_ref(&sta_info_container, \

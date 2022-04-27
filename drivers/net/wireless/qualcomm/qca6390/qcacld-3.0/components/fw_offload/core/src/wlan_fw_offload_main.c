@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -22,10 +22,7 @@
 #include "wlan_fw_offload_main.h"
 #include "cds_api.h"
 #include "wma.h"
-
-#ifdef SEC_CONFIG_PSM_SYSFS
-extern int wlan_hdd_sec_get_psm(void);
-#endif /* SEC_CONFIG_PSM_SYSFS */
+#include "wlan_fwol_tgt_api.h"
 
 struct wlan_fwol_psoc_obj *fwol_get_psoc_obj(struct wlan_objmgr_psoc *psoc)
 {
@@ -150,6 +147,56 @@ fwol_init_thermal_temp_in_cfg(struct wlan_objmgr_psoc *psoc,
 				cfg_get(psoc, CFG_THROTTLE_DUTY_CYCLE_LEVEL4);
 	thermal_temp->throttle_dutycycle_level[5] =
 				cfg_get(psoc, CFG_THROTTLE_DUTY_CYCLE_LEVEL5);
+	thermal_temp->priority_apps =
+				cfg_get(psoc, CFG_THERMAL_APPS_PRIORITY);
+	thermal_temp->priority_wpps =
+				cfg_get(psoc, CFG_THERMAL_WPPS_PRIOITY);
+	thermal_temp->thermal_action =
+				cfg_get(psoc, CFG_THERMAL_MGMT_ACTION);
+
+}
+
+/**
+ * fwol_set_neighbor_report_offload_params: set neighbor report parameters
+ *                                          for rso user config
+ * @psoc: The global psoc handler
+ * @fwol_neighbor_report_cfg: neighbor report config params
+ *
+ * Return: none
+ */
+static void
+fwol_set_neighbor_report_offload_params(
+		struct wlan_objmgr_psoc *psoc,
+		struct wlan_fwol_neighbor_report_cfg *fwol_neighbor_report_cfg)
+{
+	struct cm_roam_neighbor_report_offload_params *neighbor_report_offload;
+	struct wlan_mlme_psoc_ext_obj *mlme_obj;
+
+	mlme_obj = mlme_get_psoc_ext_obj(psoc);
+	if (!mlme_obj) {
+		fwol_err("Failed to get MLME Obj");
+		return;
+	}
+
+	neighbor_report_offload = &mlme_obj->cfg.lfr.rso_user_config
+						.neighbor_report_offload;
+
+	neighbor_report_offload->offload_11k_enable_bitmask =
+				fwol_neighbor_report_cfg->enable_bitmask;
+	neighbor_report_offload->params_bitmask =
+				fwol_neighbor_report_cfg->params_bitmask;
+	neighbor_report_offload->time_offset =
+				fwol_neighbor_report_cfg->time_offset;
+	neighbor_report_offload->low_rssi_offset =
+				fwol_neighbor_report_cfg->low_rssi_offset;
+	neighbor_report_offload->bmiss_count_trigger =
+				fwol_neighbor_report_cfg->bmiss_count_trigger;
+	neighbor_report_offload->per_threshold_offset =
+				fwol_neighbor_report_cfg->per_threshold_offset;
+	neighbor_report_offload->neighbor_report_cache_timeout =
+				fwol_neighbor_report_cfg->cache_timeout;
+	neighbor_report_offload->max_neighbor_report_req_cap =
+				fwol_neighbor_report_cfg->max_req_cap;
 }
 
 QDF_STATUS fwol_init_neighbor_report_cfg(struct wlan_objmgr_psoc *psoc,
@@ -178,12 +225,7 @@ QDF_STATUS fwol_init_neighbor_report_cfg(struct wlan_objmgr_psoc *psoc,
 	fwol_neighbor_report_cfg->max_req_cap =
 		cfg_get(psoc, CFG_OFFLOAD_NEIGHBOR_REPORT_MAX_REQ_CAP);
 
-#ifdef SEC_CONFIG_PSM_SYSFS
-	if (wlan_hdd_sec_get_psm()) {
-		fwol_neighbor_report_cfg->enable_bitmask = 0;
-		printk("[WIFI] CFG_OFFLOAD_11K_ENABLE_BITMASK : sec_control_psm = %u", fwol_neighbor_report_cfg->enable_bitmask);
-	}
-#endif /* SEC_CONFIG_PSM_SYSFS */
+	fwol_set_neighbor_report_offload_params(psoc, fwol_neighbor_report_cfg);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -219,10 +261,9 @@ fwol_set_adaptive_dwelltime_config(
 	QDF_STATUS status;
 
 	wma_handle = cds_get_context(QDF_MODULE_ID_WMA);
-	if (!wma_handle) {
-		fwol_err("wma handle is null");
+	if (!wma_handle)
 		return QDF_STATUS_E_FAILURE;
-	}
+
 	status = wma_send_adapt_dwelltime_params(wma_handle,
 						 dwelltime_params);
 	return status;
@@ -501,6 +542,7 @@ QDF_STATUS fwol_cfg_on_psoc_enable(struct wlan_objmgr_psoc *psoc)
 	struct wlan_fwol_psoc_obj *fwol_obj;
 	struct wlan_fwol_cfg *fwol_cfg;
 	qdf_size_t enable_fw_module_log_level_num;
+	qdf_size_t enable_fw_wow_mod_log_level_num;
 
 	fwol_obj = fwol_get_psoc_obj(psoc);
 	if (!fwol_obj) {
@@ -537,6 +579,12 @@ QDF_STATUS fwol_cfg_on_psoc_enable(struct wlan_objmgr_psoc *psoc)
 			      &enable_fw_module_log_level_num);
 	fwol_cfg->enable_fw_module_log_level_num =
 				(uint8_t)enable_fw_module_log_level_num;
+	qdf_uint8_array_parse(cfg_get(psoc, CFG_ENABLE_FW_WOW_MODULE_LOG_LEVEL),
+			      fwol_cfg->enable_fw_mod_wow_log_level,
+			      FW_MODULE_LOG_LEVEL_STRING_LENGTH,
+			      &enable_fw_wow_mod_log_level_num);
+	fwol_cfg->enable_fw_mod_wow_log_level_num =
+				(uint8_t)enable_fw_wow_mod_log_level_num;
 	ucfg_fwol_init_tsf_ptp_options(psoc, fwol_cfg);
 	ucfg_fwol_init_sae_cfg(psoc, fwol_cfg);
 	fwol_cfg->lprx_enable = cfg_get(psoc, CFG_LPRX);
@@ -551,6 +599,9 @@ QDF_STATUS fwol_cfg_on_psoc_enable(struct wlan_objmgr_psoc *psoc)
 	ucfg_fwol_fetch_tsf_sync_host_gpio_pin(psoc, fwol_cfg);
 	ucfg_fwol_fetch_dhcp_server_settings(psoc, fwol_cfg);
 	fwol_cfg->sap_xlna_bypass = cfg_get(psoc, CFG_SET_SAP_XLNA_BYPASS);
+	fwol_cfg->enable_ilp = cfg_get(psoc, CFG_SET_ENABLE_ILP);
+	fwol_cfg->sap_sho = cfg_get(psoc, CFG_SAP_SHO_CONFIG);
+	fwol_cfg->disable_hw_assist = cfg_get(psoc, CFG_DISABLE_HW_ASSIST);
 
 	return status;
 }
@@ -654,3 +705,73 @@ void fwol_release_rx_event(struct wlan_fwol_rx_event *event)
 		wlan_objmgr_psoc_release_ref(event->psoc, WLAN_FWOL_SB_ID);
 	qdf_mem_free(event);
 }
+
+QDF_STATUS fwol_set_ilp_config(struct wlan_objmgr_pdev *pdev, bool enable_ilp)
+{
+	QDF_STATUS status;
+	struct pdev_params pdev_param;
+
+	pdev_param.param_id = WMI_PDEV_PARAM_PCIE_HW_ILP;
+	pdev_param.param_value = enable_ilp;
+
+	status = tgt_fwol_pdev_param_send(pdev, pdev_param);
+	if (QDF_IS_STATUS_ERROR(status))
+		fwol_err("WMI_PDEV_PARAM_PCIE_HW_ILP failed %d", status);
+
+	return status;
+}
+
+QDF_STATUS fwol_set_sap_sho(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id,
+			    uint32_t sap_sho)
+{
+	QDF_STATUS status;
+	struct vdev_set_params vdev_param;
+
+	vdev_param.vdev_id = vdev_id;
+	vdev_param.param_id = WMI_VDEV_PARAM_SHO_CONFIG;
+	vdev_param.param_value = sap_sho;
+
+	status = tgt_fwol_vdev_param_send(psoc, vdev_param);
+	if (QDF_IS_STATUS_ERROR(status))
+		fwol_err("WMI_VDEV_PARAM_SHO_CONFIG failed %d", status);
+
+	return status;
+}
+
+QDF_STATUS fwol_configure_hw_assist(struct wlan_objmgr_pdev *pdev,
+				    bool disable_hw_assist)
+{
+	QDF_STATUS status;
+	struct pdev_params pdev_param;
+
+	pdev_param.param_id = WMI_PDEV_PARAM_DISABLE_HW_ASSIST;
+	pdev_param.param_value = disable_hw_assist;
+
+	status = tgt_fwol_pdev_param_send(pdev, pdev_param);
+	if (QDF_IS_STATUS_ERROR(status))
+		fwol_err("WMI_PDEV_PARAM_DISABLE_HW_ASSIST failed %d", status);
+
+	return status;
+}
+
+#ifdef FEATURE_WDS
+QDF_STATUS
+fwol_set_sap_wds_config(struct wlan_objmgr_psoc *psoc, uint8_t vdev_id)
+{
+	QDF_STATUS status;
+	struct vdev_set_params vdev_param;
+
+	if (!wlan_mlme_get_wds_mode(psoc))
+		return QDF_STATUS_SUCCESS;
+
+	vdev_param.vdev_id = vdev_id;
+	vdev_param.param_id = WMI_VDEV_PARAM_WDS;
+	vdev_param.param_value = true;
+
+	status = tgt_fwol_vdev_param_send(psoc, vdev_param);
+	if (QDF_IS_STATUS_ERROR(status))
+		fwol_err("WMI_VDEV_PARAM_WDS failed %d", status);
+
+	return status;
+}
+#endif

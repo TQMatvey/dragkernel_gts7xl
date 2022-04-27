@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -34,6 +34,7 @@
 #include "dot11f.h"
 #include "lim_ft_defs.h"
 #include "lim_session.h"
+#include "wlan_mlme_main.h"
 
 #define COUNTRY_STRING_LENGTH    (3)
 #define COUNTRY_INFO_MAX_CHANNEL (84)
@@ -59,19 +60,6 @@
 #define NSS_3x3_MODE 3
 #define NSS_4x4_MODE 4
 #define MBO_IE_ASSOC_DISALLOWED_SUBATTR_ID 0x04
-
-/* QCN IE definitions */
-#define QCN_IE_HDR_LEN     6
-
-#define QCN_IE_VERSION_SUBATTR_ID        1
-#define QCN_IE_VERSION_SUBATTR_DATA_LEN  2
-#define QCN_IE_VERSION_SUBATTR_LEN       4
-#define QCN_IE_VERSION_SUPPORTED    1
-#define QCN_IE_SUBVERSION_SUPPORTED 0
-
-#define QCN_IE_ATTR_ID_VERSION 1
-#define QCN_IE_ATTR_ID_VHT_MCS11 2
-#define QCN_IE_ATTR_ID_ALL 0xFF
 
 #define SIZE_OF_FIXED_PARAM 12
 #define SIZE_OF_TAG_PARAM_NUM 1
@@ -267,7 +255,6 @@ typedef struct sSirProbeRespBeacon {
 	tDot11fIEvendor_vht_ie vendor_vht_ie;
 	uint8_t Vendor3IEPresent;
 	tDot11fIEhs20vendor_ie hs20vendor_ie;
-	tDot11fIEIBSSParams IBSSParams;
 #ifdef FEATURE_AP_MCC_CH_AVOIDANCE
 	tDot11fIEQComVendorIE   AvoidChannelIE;
 #endif /* FEATURE_AP_MCC_CH_AVOIDANCE */
@@ -350,6 +337,7 @@ typedef struct sSirAssocReq {
 	uint8_t supportedChannelsPresent;
 	/* keeping copy of association request received, this is
 	   required for indicating the frame to upper layers */
+	qdf_nbuf_t assoc_req_buf;
 	uint32_t assocReqFrameLength;
 	uint8_t *assocReqFrame;
 	tDot11fIEVHTCaps VHTCaps;
@@ -455,6 +443,7 @@ typedef struct sSirAssocRsp {
 #ifdef WLAN_FEATURE_11W
 	tDot11fIETimeoutInterval TimeoutInterval;
 #endif
+	tDot11fIERRMEnabledCap rrm_caps;
 	tDot11fIEvendor_vht_ie vendor_vht_ie;
 	tDot11fIEOBSSScanParameters obss_scanparams;
 	tDot11fTLVrssi_assoc_rej rssi_assoc_rej;
@@ -473,6 +462,8 @@ typedef struct sSirAssocRsp {
 	uint16_t hlp_data_len;
 	uint8_t hlp_data[FILS_MAX_HLP_DATA_LEN];
 #endif
+	uint32_t iot_amsdu_sz;
+	uint32_t iot_ampdu_sz;
 } tSirAssocRsp, *tpSirAssocRsp;
 
 #ifdef FEATURE_WLAN_ESE
@@ -483,7 +474,6 @@ typedef struct sSirEseBcnReportMandatoryIe {
 	tSirMacFHParamSet fhParamSet;
 	tSirMacDsParamSetIE dsParamSet;
 	tSirMacCfParamSet cfParamSet;
-	tSirMacIBSSParams ibssParamSet;
 	tSirMacTim tim;
 	tSirMacRRMEnabledCap rmEnabledCapabilities;
 
@@ -492,7 +482,6 @@ typedef struct sSirEseBcnReportMandatoryIe {
 	uint8_t fhParamPresent;
 	uint8_t dsParamsPresent;
 	uint8_t cfPresent;
-	uint8_t ibssParamPresent;
 	uint8_t timPresent;
 	uint8_t rrmPresent;
 } tSirEseBcnReportMandatoryIe, *tpSirEseBcnReportMandatoryIe;
@@ -584,6 +573,9 @@ struct s_ext_cap {
 	uint8_t reserved7:2;
 	uint8_t twt_requestor_support:1;
 	uint8_t twt_responder_support:1;
+	uint8_t reserved8: 1;
+	uint8_t reserved9: 4;
+	uint8_t beacon_protection_enable: 1;
 };
 
 void swap_bit_field16(uint16_t in, uint16_t *out);
@@ -698,9 +690,11 @@ populate_dot_11_f_ext_chann_switch_ann(struct mac_context *mac_ptr,
 				struct pe_session *session_entry);
 
 void
-populate_dot11f_vht_tx_power_env(struct mac_context *mac,
-				 tDot11fIEvht_transmit_power_env *pDot11f,
-				 enum phy_ch_width ch_width, uint32_t chan_freq);
+populate_dot11f_tx_power_env(struct mac_context *mac,
+			     tDot11fIEtransmit_power_env *pDot11f,
+			     enum phy_ch_width ch_width, uint32_t chan_freq,
+			     uint16_t *num_tpe, bool is_ch_switch);
+
 /* / Populate a tDot11fIEChannelSwitchWrapper */
 void
 populate_dot11f_chan_switch_wrapper(struct mac_context *mac,
@@ -776,9 +770,6 @@ QDF_STATUS
 populate_dot11f_ht_info(struct mac_context *mac,
 			tDot11fIEHTInfo *pDot11f, struct pe_session *pe_session);
 
-void populate_dot11f_ibss_params(struct mac_context *mac,
-				tDot11fIEIBSSParams *pDot11f,
-				struct pe_session *pe_session);
 
 #ifdef ANI_SUPPORT_11H
 QDF_STATUS
@@ -977,6 +968,12 @@ void populate_dot11f_tspec(struct mac_tspec_ie *pOld, tDot11fIETSPEC *pDot11f);
 void populate_dot11f_wmmtspec(struct mac_tspec_ie *pOld,
 			      tDot11fIEWMMTSPEC *pDot11f);
 
+#ifdef WLAN_FEATURE_MSCS
+void
+populate_dot11f_mscs_dec_element(struct mscs_req_info *mscs_req,
+				 tDot11fmscs_request_action_frame *dot11f);
+#endif
+
 QDF_STATUS
 populate_dot11f_tclas(struct mac_context *mac,
 		tSirTclasInfo *pOld, tDot11fIETCLAS *pDot11f);
@@ -1068,6 +1065,7 @@ populate_dot11f_ext_cap(struct mac_context *mac, bool isVHTEnabled,
 			tDot11fIEExtCap *pDot11f, struct pe_session *pe_session);
 
 void populate_dot11f_qcn_ie(struct mac_context *mac,
+			    struct pe_session *pe_session,
 			    tDot11fIEqcn_ie *qcn_ie,
 			    uint8_t attr_id);
 
@@ -1204,7 +1202,7 @@ static inline QDF_STATUS populate_dot11f_he_bss_color_change(
 }
 #endif
 
-#ifdef WLAN_SUPPORT_TWT
+#if defined(WLAN_FEATURE_11AX) && defined(WLAN_SUPPORT_TWT)
 /**
  * populate_dot11f_twt_extended_caps() - populate TWT extended capabilities
  * @mac_ctx: Global MAC context.
@@ -1244,4 +1242,48 @@ static inline uint32_t lim_truncate_ppet(uint8_t *ppet, uint32_t max_len)
 	}
 	return max_len;
 }
+
+QDF_STATUS wlan_parse_bss_description_ies(struct mac_context *mac_ctx,
+					  struct bss_description *bss_desc,
+					  tDot11fBeaconIEs *ie_struct);
+
+QDF_STATUS
+wlan_get_parsed_bss_description_ies(struct mac_context *mac_ctx,
+				    struct bss_description *bss_desc,
+				    tDot11fBeaconIEs **ie_struct);
+
+QDF_STATUS
+wlan_fill_bss_desc_from_scan_entry(struct mac_context *mac_ctx,
+				   struct bss_description *bss_desc,
+				   struct scan_cache_entry *scan_entry);
+
+/**
+ * wlan_get_ielen_from_bss_description() - to get IE length
+ * from struct bss_description structure
+ * @pBssDescr: pBssDescr
+ *
+ * This function is called in various places to get IE length
+ * from struct bss_description structure
+ *
+ * @Return: total IE length
+ */
+uint16_t
+wlan_get_ielen_from_bss_description(struct bss_description *bss_desc);
+
+/**
+ * dot11f_parse_assoc_response() - API to parse Assoc IE buffer to struct
+ * @mac_ctx: MAC context
+ * @p_buf: Pointer to the assoc IE buffer
+ * @n_buf: length of the @p_buf
+ * @p_frm: Struct to populate the IE buffer after parsing
+ * @append_ie: Boolean to indicate whether to reset @p_frm or not. If @append_ie
+ *             is true, @p_frm struct is not reset to zeros.
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS dot11f_parse_assoc_response(struct mac_context *mac_ctx,
+				       uint8_t *p_buf, uint32_t n_buf,
+				       tDot11fAssocResponse *p_frm,
+				       bool append_ie);
+
 #endif /* __PARSE_H__ */
