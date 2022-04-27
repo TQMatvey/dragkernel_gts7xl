@@ -1,6 +1,6 @@
 # **DragHunter - a GTS7XL kernel**
 
-## Modified Netfunter kernel for Samsung Galaxy Tab S7+(SM-T975)  
+## Modified Netfunter kernel for Samsung Galaxy Tab S7+ (SM-T975, gts7xl)  
 
 ## Features
 * all features from https://github.com/b1ad3runn3r/drag-kernel-t975
