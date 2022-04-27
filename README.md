@@ -1,37 +1,16 @@
-# **DragKernel - a GTS7XL kernel**
+# **DragHunter - a GTS7XL kernel**
 
-## Modified kernel for Samsung Galaxy Tab S7+(SM-T975)  
-Special thanx to:
-* https://github.com/ianmacd for his TWRP-compatible config
-* https://github.com/freeza-inc,
-* https://github.com/engstk,
-* https://github.com/Jimbo77,
-* https://github.com/flar2 for their patches
-* https://github.com/osm0sis for his AnyKernel3
-* https://github.com/andip71 for Boeffla WL Blocker
-* https://github.com/tanish2k09 for K-Lapse livedisplay module
-* https://github.com/kdrag0n for proton-clang
-* https://github.com/LineageOS for gcc toolchain nested on github
-
-
-## Short description
-This is a stock modified kernel from SM-T975 with bugfixes and new features. Android R. Current FW version - T975XXU2BUJ3
+## Modified Netfunter kernel for Samsung Galaxy Tab S7+(SM-T975)  
 
 ## Features
-* Wireguard support
-* TTL fixing support
-* CIFS, NFS support
-* Removed DM_VERITY, AVB, SECURITY_DEFEX, etc.
-* Removed unnecessary debugging and watchdogs
-* Enhanced TCP methods (westwood is default, bbr, illinois, vegas, htcp, hstcp available)
-* Magisk patched already
-* ZEN, FIOPS, SIO, BFQ, MAPLE I/O schedulers(FIOPS default)
-* Boeffla Wakelock blocker
-* Configurable fsync
-* K-Lapse
-* Andrenoboost
-* configs tuning
-* and more...
+* all features from https://github.com/b1ad3runn3r/drag-kernel-t975
+* Kali Nethunter Patches
+* RTL8812/14AU (TESTED)
+* Latest qcacld-3.0 drivers 
+
+## W.I.P
+* Internal monitor mode (Partly works)
+* rtl8188eus
 
 **GPU OC attempt successful to 683 MHz.**
 
@@ -52,14 +31,14 @@ All toolchain are downloaded automatically as submodules, just run build_kernel.
 ```
 sudo pacman -Syy
 sudo pacman -S base-devel git perl openssl ccache bc
-git clone --recurse-submodules https://github.com/b1ad3runn3r/drag-kernel-t975 && cd drag-kernel-t975
+git clone --recurse-submodules dragkernel_gts7xl && cd drag-kernel-t975
 chmod +x build_kernel.sh && ./build_kernel.sh
 ```
 ### Ubuntu
 ```
 sudo apt update
 sudo apt install build-essential bc flex bison libncurses5-dev libssl-dev git ccache
-git clone --recurse-submodules https://github.com/b1ad3runn3r/drag-kernel-t975 && cd drag-kernel-t975
+git clone --recurse-submodules https://github.com/TQMatvey/dragkernel_gts7xl && cd dragkernel_gts7xl
 chmod +x build_kernel.sh && ./build_kernel.sh
 ```
 ## Post-building
@@ -68,3 +47,15 @@ Kernel gets packed into AnyKernel3 zip automatically. You don't need to do anyth
 ## Troubleshooting
 If your make task fails with "Permission denied", etc. and the failed file is a shell-script, use ```chmod +x script.sh```
 
+Credits:
+* https://github.com/b1ad3runn3r, for DragKernel 
+* https://github.com/ianmacd, for his TWRP-compatible config
+* https://github.com/freeza-inc,
+* https://github.com/engstk,
+* https://github.com/Jimbo77,
+* https://github.com/flar2 for their patches
+* https://github.com/osm0sis for his AnyKernel3
+* https://github.com/andip71 for Boeffla WL Blocker
+* https://github.com/tanish2k09 for K-Lapse livedisplay module
+* https://github.com/kdrag0n for proton-clang
+* https://github.com/LineageOS for gcc toolchain nested on github
