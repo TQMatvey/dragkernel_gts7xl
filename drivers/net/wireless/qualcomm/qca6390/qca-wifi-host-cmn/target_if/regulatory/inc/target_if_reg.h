@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
  *
  *
  * Permission to use, copy, modify, and/or distribute this software for
@@ -58,6 +58,23 @@ QDF_STATUS target_if_reg_set_offloaded_info(struct wlan_objmgr_psoc *psoc);
 QDF_STATUS target_if_reg_set_6ghz_info(struct wlan_objmgr_psoc *psoc);
 
 /**
+ * target_if_reg_set_5dot9_ghz_info() - populate 5.9ghz enablement info
+ * @psoc: psoc pointer
+ * Return: Success or Failure
+ */
+QDF_STATUS target_if_reg_set_5dot9_ghz_info(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * target_if_reg_is_reg_cc_ext_event_host_supported() - Populate if reg_cc_ext
+ * event is supported by host.
+ * @psoc: psoc pointer
+ *
+ * Return: True if host supports, false otherwise.
+ */
+bool
+target_if_reg_is_reg_cc_ext_event_host_supported(struct wlan_objmgr_psoc *psoc);
+
+/**
  * target_if_regulatory_get_rx_ops() - Get regdb rx ops
  * @psoc: pointer to psoc object
  *
@@ -65,4 +82,13 @@ QDF_STATUS target_if_reg_set_6ghz_info(struct wlan_objmgr_psoc *psoc);
  */
 struct wlan_lmac_if_reg_rx_ops *
 target_if_regulatory_get_rx_ops(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * target_if_regulatory_get_tx_ops() - Get regdb tx ops
+ * @psoc: pointer to psoc object
+ *
+ * Return: Reg tx_ops
+ */
+struct wlan_lmac_if_reg_tx_ops *
+target_if_regulatory_get_tx_ops(struct wlan_objmgr_psoc *psoc);
 #endif /* __TARGET_IF_REG_H__ */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -40,7 +40,7 @@ static QDF_STATUS send_dbr_cfg_cmd_tlv(wmi_unified_t wmi_handle,
 
 	buf = wmi_buf_alloc(wmi_handle, sizeof(*cmd));
 	if (!buf) {
-		WMI_LOGE(FL("wmi_buf_alloc failed"));
+		wmi_err("wmi_buf_alloc failed");
 		return QDF_STATUS_E_FAILURE;
 	}
 
@@ -65,11 +65,11 @@ static QDF_STATUS send_dbr_cfg_cmd_tlv(wmi_unified_t wmi_handle,
 	cmd->num_resp_per_event = cfg->num_resp_per_event;
 	cmd->event_timeout_ms = cfg->event_timeout_ms;
 
-	WMI_LOGD("%s: wmi_dma_ring_cfg_req_fixed_param pdev id %d mod id %d"
+	wmi_debug("wmi_dma_ring_cfg_req_fixed_param pdev id %d mod id %d"
 		  "base paddr lo %x base paddr hi %x head idx paddr lo %x"
 		  "head idx paddr hi %x tail idx paddr lo %x"
 		  "tail idx addr hi %x num elems %d buf size %d num resp %d"
-		  "event timeout %d", __func__, cmd->pdev_id,
+		  "event timeout %d", cmd->pdev_id,
 		  cmd->mod_id, cmd->base_paddr_lo, cmd->base_paddr_hi,
 		  cmd->head_idx_paddr_lo, cmd->head_idx_paddr_hi,
 		  cmd->tail_idx_paddr_lo, cmd->tail_idx_paddr_hi,
@@ -79,7 +79,7 @@ static QDF_STATUS send_dbr_cfg_cmd_tlv(wmi_unified_t wmi_handle,
 	ret = wmi_unified_cmd_send(wmi_handle, buf, len,
 				WMI_PDEV_DMA_RING_CFG_REQ_CMDID);
 	if (QDF_IS_STATUS_ERROR(ret)) {
-		WMI_LOGE(FL(":wmi cmd send failed"));
+		wmi_err(":wmi cmd send failed");
 		wmi_buf_free(buf);
 	}
 
@@ -132,19 +132,9 @@ static QDF_STATUS extract_dbr_buf_release_fixed_tlv(wmi_unified_t wmi_handle,
 								wmi_handle,
 								ev->pdev_id);
 	param->mod_id = ev->mod_id;
-	if ((!param_buf->num_entries) ||
-	    param_buf->num_entries < ev->num_buf_release_entry){
-		wmi_err("actual num of buf release entries less than provided entries");
-		return QDF_STATUS_E_INVAL;
-	}
 	param->num_buf_release_entry = ev->num_buf_release_entry;
-	if ((!param_buf->num_meta_data) ||
-	    param_buf->num_meta_data < ev->num_meta_data_entry) {
-		wmi_err("actual num of meta data entries less than provided entries");
-		return QDF_STATUS_E_INVAL;
-	}
 	param->num_meta_data_entry = ev->num_meta_data_entry;
-	WMI_LOGD("%s:pdev id %d mod id %d num buf release entry %d", __func__,
+	wmi_debug("pdev id %d mod id %d num buf release entry %d",
 		 param->pdev_id, param->mod_id, param->num_buf_release_entry);
 
 	return QDF_STATUS_SUCCESS;
@@ -163,11 +153,11 @@ static QDF_STATUS extract_dbr_buf_release_entry_tlv(wmi_unified_t wmi_handle,
 	entry = &param_buf->entries[idx];
 
 	if (!entry) {
-		WMI_LOGE("%s: Entry is NULL", __func__);
+		wmi_err("Entry is NULL");
 		return QDF_STATUS_E_FAILURE;
 	}
 
-	WMI_LOGD("%s: paddr_lo[%d] = %x", __func__, idx, entry->paddr_lo);
+	wmi_debug("paddr_lo[%d] = %x", idx, entry->paddr_lo);
 
 	param->paddr_lo = entry->paddr_lo;
 	param->paddr_hi = entry->paddr_hi;
@@ -189,7 +179,7 @@ static QDF_STATUS extract_dbr_buf_metadata_tlv(
 	entry = &param_buf->meta_data[idx];
 
 	if (!entry) {
-		WMI_LOGE("%s: Entry is NULL", __func__);
+		wmi_err("Entry is NULL");
 		return QDF_STATUS_E_FAILURE;
 	}
 
@@ -197,6 +187,9 @@ static QDF_STATUS extract_dbr_buf_metadata_tlv(
 		     qdf_min(sizeof(entry->noise_floor),
 			     sizeof(param->noisefloor)));
 	param->reset_delay = entry->reset_delay;
+	param->cfreq1 = entry->freq1;
+	param->cfreq2 = entry->freq2;
+	param->ch_width = entry->ch_width;
 
 	return QDF_STATUS_SUCCESS;
 }

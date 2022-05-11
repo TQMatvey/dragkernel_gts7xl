@@ -19,9 +19,6 @@
 #include "wlan_policy_mgr_i.h"
 #include "cfg_ucfg_api.h"
 #include "wlan_policy_mgr_api.h"
-#if !defined(CONFIG_LITHIUM) && defined(SEC_CONFIG_PSM_SYSFS)
-extern int wlan_hdd_sec_get_psm(void);
-#endif /* !CONFIG_LITHIUM && SEC_CONFIG_PSM_SYSFS */
 
 static QDF_STATUS policy_mgr_init_cfg(struct wlan_objmgr_psoc *psoc)
 {
@@ -58,9 +55,15 @@ static QDF_STATUS policy_mgr_init_cfg(struct wlan_objmgr_psoc *psoc)
 		cfg_get(psoc, CFG_FORCE_1X1_FEATURE);
 	cfg->sta_sap_scc_on_dfs_chnl =
 		cfg_get(psoc, CFG_STA_SAP_SCC_ON_DFS_CHAN);
+
+	/*
+	 * Force set sta_sap_scc_on_dfs_chnl on Non-DBS HW so that standalone
+	 * SAP is not allowed on DFS channel on non-DBS HW, Also, force SCC in
+	 * case of STA+SAP
+	 */
 	if (cfg->sta_sap_scc_on_dfs_chnl == 2 &&
 	    !cfg_get(psoc, CFG_ENABLE_DFS_MASTER_CAPABILITY))
-		cfg->sta_sap_scc_on_dfs_chnl = 0;
+		cfg->sta_sap_scc_on_dfs_chnl = 1;
 	cfg->nan_sap_scc_on_lte_coex_chnl =
 		cfg_get(psoc, CFG_NAN_SAP_SCC_ON_LTE_COEX_CHAN);
 	cfg->sta_sap_scc_on_lte_coex_chnl =
@@ -72,13 +75,6 @@ static QDF_STATUS policy_mgr_init_cfg(struct wlan_objmgr_psoc *psoc)
 	cfg->go_force_scc = cfg_get(psoc, CFG_P2P_GO_ENABLE_FORCE_SCC);
 	cfg->prefer_5g_scc_to_dbs = cfg_get(psoc, CFG_PREFER_5G_SCC_TO_DBS);
 
-//It will be work on WCN39XX only
-#if !defined(CONFIG_LITHIUM) && defined(SEC_CONFIG_PSM_SYSFS)
-	if (wlan_hdd_sec_get_psm()) {
-		cfg->dual_mac_feature = 1;
-		printk("[WIFI] CFG_DUAL_MAC_FEATURE_DISABLE : sec_control_psm = %u", cfg->dual_mac_feature);
-	}
-#endif /* !CONFIG_LITHIUM && SEC_CONFIG_PSM_SYSFS */
 	return QDF_STATUS_SUCCESS;
 }
 
@@ -175,7 +171,7 @@ QDF_STATUS ucfg_policy_mgr_get_dynamic_mcc_adaptive_sch(
 }
 
 QDF_STATUS ucfg_policy_mgr_get_mcc_adaptive_sch(struct wlan_objmgr_psoc *psoc,
-						uint8_t *mcc_adaptive_sch)
+						bool *mcc_adaptive_sch)
 {
 	return policy_mgr_get_mcc_adaptive_sch(psoc, mcc_adaptive_sch);
 }

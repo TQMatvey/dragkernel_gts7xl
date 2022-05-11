@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2019-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -61,6 +62,7 @@ char *sta_info_string_from_dbgid(wlan_sta_info_dbgid id)
 				"STA_INFO_CLEAR_CACHED_STA_INFO",
 				"STA_INFO_ATTACH_DETACH",
 				"STA_INFO_SHOW",
+				"STA_INFO_SON_GET_DATRATE_INFO",
 				"STA_INFO_ID_MAX"};
 	int32_t num_dbg_strings = QDF_ARRAY_SIZE(strings);
 
@@ -253,8 +255,8 @@ hdd_put_sta_info_ref(struct hdd_sta_info_obj *sta_info_container,
 
 	qdf_copy_macaddr(&addr, &info->sta_mac);
 	if (info->assoc_req_ies.len) {
-		qdf_mem_free(info->assoc_req_ies.data);
-		info->assoc_req_ies.data = NULL;
+		qdf_mem_free(info->assoc_req_ies.ptr);
+		info->assoc_req_ies.ptr = NULL;
 		info->assoc_req_ies.len = 0;
 	}
 

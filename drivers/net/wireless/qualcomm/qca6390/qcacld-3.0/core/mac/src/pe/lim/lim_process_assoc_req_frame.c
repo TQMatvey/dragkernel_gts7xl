@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -43,6 +43,7 @@
 #include "cds_utils.h"
 #include "wlan_utility.h"
 #include "wlan_crypto_global_api.h"
+#include <son_api.h>
 
 /**
  * lim_convert_supported_channels - Parses channel support IE
@@ -182,7 +183,7 @@ static QDF_STATUS lim_check_sta_in_pe_entries(struct mac_context *mac_ctx,
 				       QDF_MAC_ADDR_REF(
 						session->self_mac_addr));
 				lim_send_disassoc_mgmt_frame(mac_ctx,
-					eSIR_MAC_UNSPEC_FAILURE_REASON,
+					REASON_UNSPEC_FAILURE,
 					(uint8_t *) hdr->sa, session, false);
 				/*
 				 * Cleanup Rx path posts eWNI_SME_DISASSOC_RSP
@@ -192,7 +193,7 @@ static QDF_STATUS lim_check_sta_in_pe_entries(struct mac_context *mac_ctx,
 				sta_ds->mlmStaContext.cleanupTrigger =
 							eLIM_DUPLICATE_ENTRY;
 				sta_ds->mlmStaContext.disassocReason =
-				eSIR_MAC_DISASSOC_DUE_TO_INACTIVITY_REASON;
+				REASON_DISASSOC_DUE_TO_INACTIVITY;
 				lim_send_sme_disassoc_ind(mac_ctx, sta_ds,
 					session);
 				*dup_entry = true;
@@ -224,35 +225,8 @@ static bool lim_chk_sa_da(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 		return true;
 
 	pe_err("Assoc Req rejected: wlan.sa = wlan.da");
-	lim_send_assoc_rsp_mgmt_frame(mac_ctx, eSIR_MAC_UNSPEC_FAILURE_STATUS,
+	lim_send_assoc_rsp_mgmt_frame(mac_ctx, STATUS_UNSPECIFIED_FAILURE,
 				      1, hdr->sa, sub_type, 0, session, false);
-	return false;
-}
-
-/**
- * lim_chk_tkip() - checks TKIP counter measure is active
- * @mac_ctx: pointer to Global MAC structure
- * @hdr: pointer to the MAC head
- * @session: pointer to pe session entry
- * @sub_type: Assoc(=0) or Reassoc(=1) Requestframe
- *
- * Checks TKIP counter measure is active
- *
- * Return: true of no error, false otherwise
- */
-static bool lim_chk_tkip(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
-			 struct pe_session *session, uint8_t sub_type)
-{
-	/*
-	 * If TKIP counter measures active send Assoc Rsp frame to station
-	 * with eSIR_MAC_MIC_FAILURE_REASON
-	 */
-	if (!(session->bTkipCntrMeasActive && LIM_IS_AP_ROLE(session)))
-		return true;
-
-	pe_err("Assoc Req rejected: TKIP counter measure is active");
-	lim_send_assoc_rsp_mgmt_frame(mac_ctx, eSIR_MAC_MIC_FAILURE_REASON, 1,
-				      hdr->sa, sub_type, 0, session, false);
 	return false;
 }
 
@@ -292,7 +266,7 @@ static bool lim_chk_assoc_req_parse_error(struct mac_context *mac_ctx,
 
 	pe_warn("Assoc Req rejected: frame parsing error. source addr:"
 			QDF_MAC_ADDR_FMT, QDF_MAC_ADDR_REF(hdr->sa));
-	lim_send_assoc_rsp_mgmt_frame(mac_ctx, eSIR_MAC_UNSPEC_FAILURE_STATUS,
+	lim_send_assoc_rsp_mgmt_frame(mac_ctx, STATUS_UNSPECIFIED_FAILURE,
 				      1, hdr->sa, sub_type, 0, session, false);
 	return false;
 }
@@ -336,7 +310,7 @@ static bool lim_chk_capab(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 		 * status code.
 		 */
 		lim_send_assoc_rsp_mgmt_frame(
-			mac_ctx, eSIR_MAC_CAPABILITIES_NOT_SUPPORTED_STATUS,
+			mac_ctx, STATUS_CAPS_UNSUPPORTED,
 			1, hdr->sa, sub_type, 0, session, false);
 		return false;
 	}
@@ -359,7 +333,7 @@ static bool lim_chk_ssid(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 			 struct pe_session *session, tpSirAssocReq assoc_req,
 			 uint8_t sub_type)
 {
-	if (lim_cmp_ssid(&assoc_req->ssId, session) != true)
+	if (!lim_cmp_ssid(&assoc_req->ssId, session))
 		return true;
 
 	pe_err("%s Req with ssid wrong(Rcvd: %.*s self: %.*s) from "
@@ -374,7 +348,7 @@ static bool lim_chk_ssid(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 	 * SSID that does not match with local one. Respond with unspecified
 	 * status code.
 	 */
-	lim_send_assoc_rsp_mgmt_frame(mac_ctx, eSIR_MAC_UNSPEC_FAILURE_STATUS,
+	lim_send_assoc_rsp_mgmt_frame(mac_ctx, STATUS_UNSPECIFIED_FAILURE,
 				      1, hdr->sa, sub_type, 0, session, false);
 	return false;
 }
@@ -428,7 +402,7 @@ static bool lim_chk_rates(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 	 * 'basic rates not supported' status code.
 	 */
 	lim_send_assoc_rsp_mgmt_frame(
-			mac_ctx, eSIR_MAC_BASIC_RATES_NOT_SUPPORTED_STATUS, 1,
+			mac_ctx, STATUS_ASSOC_DENIED_RATES, 1,
 			hdr->sa, sub_type, 0, session, false);
 	return false;
 }
@@ -456,7 +430,7 @@ static bool lim_chk_11g_only(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 				QDF_MAC_ADDR_FMT,
 			QDF_MAC_ADDR_REF(hdr->sa));
 		lim_send_assoc_rsp_mgmt_frame(
-			mac_ctx, eSIR_MAC_CAPABILITIES_NOT_SUPPORTED_STATUS,
+			mac_ctx, STATUS_CAPS_UNSUPPORTED,
 			1, hdr->sa, sub_type, 0, session, false);
 		return false;
 	}
@@ -486,7 +460,7 @@ static bool lim_chk_11n_only(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 				QDF_MAC_ADDR_FMT,
 			QDF_MAC_ADDR_REF(hdr->sa));
 		lim_send_assoc_rsp_mgmt_frame(
-			mac_ctx, eSIR_MAC_CAPABILITIES_NOT_SUPPORTED_STATUS,
+			mac_ctx, STATUS_CAPS_UNSUPPORTED,
 			1, hdr->sa, sub_type, 0, session, false);
 		return false;
 	}
@@ -523,7 +497,7 @@ static bool lim_chk_11ac_only(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 		(session->dot11mode == MLME_DOT11_MODE_11AC_ONLY) &&
 		((!vht_caps) || ((vht_caps) && (!vht_caps->present)))) {
 		lim_send_assoc_rsp_mgmt_frame(
-			mac_ctx, eSIR_MAC_CAPABILITIES_NOT_SUPPORTED_STATUS,
+			mac_ctx, STATUS_CAPS_UNSUPPORTED,
 			1, hdr->sa, sub_type, 0, session, false);
 		pe_err("SOFTAP was in 11AC only mode, reject");
 		return false;
@@ -552,7 +526,7 @@ static bool lim_chk_11ax_only(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 		(session->dot11mode == MLME_DOT11_MODE_11AX_ONLY) &&
 		 !assoc_req->he_cap.present) {
 		lim_send_assoc_rsp_mgmt_frame(
-			mac_ctx, eSIR_MAC_CAPABILITIES_NOT_SUPPORTED_STATUS,
+			mac_ctx, STATUS_CAPS_UNSUPPORTED,
 			1, hdr->sa, sub_type, 0, session, false);
 		pe_err("SOFTAP was in 11AX only mode, reject");
 		return false;
@@ -591,7 +565,7 @@ static bool lim_check_11ax_basic_mcs(struct mac_context *mac_ctx,
 		if (final_mcs != basic_mcs) {
 			lim_send_assoc_rsp_mgmt_frame(
 				mac_ctx,
-				eSIR_MAC_CAPABILITIES_NOT_SUPPORTED_STATUS,
+				STATUS_CAPS_UNSUPPORTED,
 				1, hdr->sa, sub_type, 0, session, false);
 			pe_err("STA did not support basic MCS required by SAP");
 			return false;
@@ -734,7 +708,7 @@ static bool lim_chk_mcs(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 		 * scenario.
 		 */
 		lim_send_assoc_rsp_mgmt_frame(
-			mac_ctx, eSIR_MAC_OUTSIDE_SCOPE_OF_SPEC_STATUS,
+			mac_ctx, STATUS_ASSOC_DENIED_UNSPEC,
 			1, hdr->sa, sub_type, 0, session, false);
 		return false;
 	}
@@ -772,7 +746,7 @@ static bool lim_chk_is_11b_sta_supported(struct mac_context *mac_ctx,
 			 */
 			lim_send_assoc_rsp_mgmt_frame(
 				mac_ctx,
-				eSIR_MAC_BASIC_RATES_NOT_SUPPORTED_STATUS,
+				STATUS_ASSOC_DENIED_RATES,
 				1, hdr->sa, sub_type, 0, session, false);
 
 			pe_warn("Rejecting Re/Assoc req from 11b STA:");
@@ -829,7 +803,7 @@ static void lim_print_ht_cap(struct mac_context *mac_ctx, struct pe_session *ses
 	}
 }
 
-static enum mac_status_code
+static enum wlan_status_code
 lim_check_crypto_param(tpSirAssocReq assoc_req,
 		       struct wlan_crypto_params *peer_crypto_params)
 {
@@ -840,37 +814,44 @@ lim_check_crypto_param(tpSirAssocReq assoc_req,
 		    (peer_crypto_params->ucastcipherset &
 			(1 << WLAN_CRYPTO_CIPHER_WEP))) {
 			pe_info("TKIP/WEP cipher with HT supported client, reject assoc");
-			return eSIR_MAC_INVALID_IE_STATUS;
+			return STATUS_INVALID_IE;
 		}
 	}
-	return eSIR_MAC_SUCCESS_STATUS;
+	return STATUS_SUCCESS;
 }
 
 static
-enum mac_status_code lim_check_rsn_ie(struct pe_session *session,
+enum wlan_status_code lim_check_rsn_ie(struct pe_session *session,
 				      struct mac_context *mac_ctx,
 				      tpSirAssocReq assoc_req,
 				      bool *pmf_connection)
 {
 	struct wlan_objmgr_vdev *vdev;
-	tSirMacRsnInfo rsn_ie;
+	tSirMacRsnInfo *rsn_ie;
 	struct wlan_crypto_params peer_crypto_params;
 
-	rsn_ie.info[0] = WLAN_ELEMID_RSN;
-	rsn_ie.info[1] = assoc_req->rsn.length;
+	rsn_ie = qdf_mem_malloc(sizeof(*rsn_ie));
+	if (!rsn_ie) {
+		pe_err("malloc failed for rsn_ie");
+		return STATUS_UNSPECIFIED_FAILURE;
+	}
 
-	rsn_ie.length = assoc_req->rsn.length + 2;
-	qdf_mem_copy(&rsn_ie.info[2], assoc_req->rsn.info,
+	rsn_ie->info[0] = WLAN_ELEMID_RSN;
+	rsn_ie->info[1] = assoc_req->rsn.length;
+
+	rsn_ie->length = assoc_req->rsn.length + 2;
+	qdf_mem_copy(&rsn_ie->info[2], assoc_req->rsn.info,
 		     assoc_req->rsn.length);
 	if (wlan_crypto_check_rsn_match(mac_ctx->psoc, session->smeSessionId,
-					&rsn_ie.info[0], rsn_ie.length,
+					&rsn_ie->info[0], rsn_ie->length,
 					&peer_crypto_params)) {
 		vdev = wlan_objmgr_get_vdev_by_id_from_psoc(mac_ctx->psoc,
 							session->smeSessionId,
 							WLAN_LEGACY_MAC_ID);
 		if (!vdev) {
 			pe_err("vdev is NULL");
-			return eSIR_MAC_UNSPEC_FAILURE_STATUS;
+			qdf_mem_free(rsn_ie);
+			return STATUS_UNSPECIFIED_FAILURE;
 		}
 		if ((peer_crypto_params.rsn_caps &
 		    WLAN_CRYPTO_RSN_CAP_MFP_ENABLED) &&
@@ -878,41 +859,62 @@ enum mac_status_code lim_check_rsn_ie(struct pe_session *session,
 			*pmf_connection = true;
 
 		wlan_objmgr_vdev_release_ref(vdev, WLAN_LEGACY_MAC_ID);
+		qdf_mem_free(rsn_ie);
 		return lim_check_crypto_param(assoc_req, &peer_crypto_params);
 
 	} else {
-		return eSIR_MAC_INVALID_IE_STATUS;
+		qdf_mem_free(rsn_ie);
+		return STATUS_INVALID_IE;
 	}
 
-	return eSIR_MAC_SUCCESS_STATUS;
+	qdf_mem_free(rsn_ie);
+	return STATUS_SUCCESS;
 }
 
-static enum mac_status_code lim_check_wpa_ie(struct pe_session *session,
+static enum wlan_status_code lim_check_wpa_ie(struct pe_session *session,
 					     struct mac_context *mac_ctx,
 					     tpSirAssocReq assoc_req,
 					     tDot11fIEWPA *wpa)
 {
-	uint8_t buffer[WLAN_MAX_IE_LEN];
+	uint8_t *buffer;
 	uint32_t dot11f_status, written = 0, nbuffer = WLAN_MAX_IE_LEN;
-	tSirMacRsnInfo wpa_ie = {0};
+	tSirMacRsnInfo *wpa_ie;
 	struct wlan_crypto_params peer_crypto_params;
+
+	buffer = qdf_mem_malloc(WLAN_MAX_IE_LEN);
+	if (!buffer) {
+		pe_err("malloc failed for ie buffer");
+		return STATUS_INVALID_IE;
+	}
 
 	dot11f_status = dot11f_pack_ie_wpa(mac_ctx, wpa, buffer,
 					   nbuffer, &written);
 	if (DOT11F_FAILED(dot11f_status)) {
 		pe_err("Failed to re-pack the RSN IE (0x%0x8)", dot11f_status);
-		return eSIR_MAC_INVALID_IE_STATUS;
+		qdf_mem_free(buffer);
+		return STATUS_INVALID_IE;
 	}
 
-	wpa_ie.length = (uint8_t) written;
-	qdf_mem_copy(&wpa_ie.info[0], buffer, wpa_ie.length);
+	wpa_ie = qdf_mem_malloc(sizeof(*wpa_ie));
+	if (!wpa_ie) {
+		pe_err("malloc failed for wpa ie");
+		qdf_mem_free(buffer);
+		return STATUS_INVALID_IE;
+	}
+
+	wpa_ie->length = (uint8_t)written;
+	qdf_mem_copy(&wpa_ie->info[0], buffer, wpa_ie->length);
+	qdf_mem_free(buffer);
+
 	if (wlan_crypto_check_wpa_match(mac_ctx->psoc, session->smeSessionId,
-					&wpa_ie.info[0], wpa_ie.length,
+					&wpa_ie->info[0], wpa_ie->length,
 					&peer_crypto_params)) {
+		qdf_mem_free(wpa_ie);
 		return lim_check_crypto_param(assoc_req, &peer_crypto_params);
 	}
 
-	return eSIR_MAC_INVALID_IE_STATUS;
+	qdf_mem_free(wpa_ie);
+	return STATUS_INVALID_IE;
 }
 
 /**
@@ -925,28 +927,28 @@ static enum mac_status_code lim_check_wpa_ie(struct pe_session *session,
   * capable. Reject with eSIR_MAC_ROBUST_MGMT_FRAMES_POLICY_VIOLATION
   * if SAE STA is pmf disable.
   *
-  * Return: mac_status_code
+  * Return: wlan_status_code
   */
 #if defined(WLAN_FEATURE_SAE) && defined(WLAN_FEATURE_11W)
-static enum mac_status_code lim_check_sae_pmf_cap(struct pe_session *session,
+static enum wlan_status_code lim_check_sae_pmf_cap(struct pe_session *session,
 						  tDot11fIERSN *rsn,
 						  enum ani_akm_type akm_type)
 {
-	enum mac_status_code status = eSIR_MAC_SUCCESS_STATUS;
+	enum wlan_status_code status = STATUS_SUCCESS;
 
 	if (session->pLimStartBssReq->pmfCapable &&
 	    (rsn->RSN_Cap[0] & WLAN_CRYPTO_RSN_CAP_MFP_ENABLED) == 0 &&
 	    akm_type == ANI_AKM_TYPE_SAE)
-		status = eSIR_MAC_ROBUST_MGMT_FRAMES_POLICY_VIOLATION_STATUS;
+		status = STATUS_ROBUST_MGMT_FRAME_POLICY_VIOLATION;
 
 	return status;
 }
 #else
-static enum mac_status_code lim_check_sae_pmf_cap(struct pe_session *session,
+static enum wlan_status_code lim_check_sae_pmf_cap(struct pe_session *session,
 						  tDot11fIERSN *rsn,
 						  enum ani_akm_type akm_type)
 {
-	return eSIR_MAC_SUCCESS_STATUS;
+	return STATUS_SUCCESS;
 }
 #endif
 
@@ -974,7 +976,7 @@ static bool lim_check_wpa_rsn_ie(struct pe_session *session,
 	uint32_t ret;
 	tDot11fIEWPA dot11f_ie_wpa = {0};
 	tDot11fIERSN dot11f_ie_rsn = {0};
-	enum mac_status_code status = eSIR_MAC_SUCCESS_STATUS;
+	enum wlan_status_code status = STATUS_SUCCESS;
 
 	/*
 	 * Clear the buffers so that frame parser knows that there isn't a
@@ -995,7 +997,7 @@ static bool lim_check_wpa_rsn_ie(struct pe_session *session,
 			 * length is zero
 			 */
 			lim_send_assoc_rsp_mgmt_frame(
-				mac_ctx, eSIR_MAC_INVALID_IE_STATUS, 1,
+				mac_ctx, STATUS_INVALID_IE, 1,
 				hdr->sa, sub_type, 0, session, false);
 			return false;
 		}
@@ -1008,7 +1010,7 @@ static bool lim_check_wpa_rsn_ie(struct pe_session *session,
 		if (!DOT11F_SUCCEEDED(ret)) {
 			pe_err("Invalid RSN IE");
 			lim_send_assoc_rsp_mgmt_frame(
-				mac_ctx, eSIR_MAC_INVALID_IE_STATUS, 1,
+				mac_ctx, STATUS_INVALID_IE, 1,
 				hdr->sa, sub_type, 0, session, false);
 			return false;
 		}
@@ -1018,7 +1020,7 @@ static bool lim_check_wpa_rsn_ie(struct pe_session *session,
 			/* check the groupwise and pairwise cipher suites */
 			status = lim_check_rsn_ie(session, mac_ctx, assoc_req,
 						  pmf_connection);
-			if (eSIR_MAC_SUCCESS_STATUS != status) {
+			if (status != STATUS_SUCCESS) {
 				pe_warn("Re/Assoc rejected from: "
 					QDF_MAC_ADDR_FMT,
 					QDF_MAC_ADDR_REF(hdr->sa));
@@ -1037,7 +1039,7 @@ static bool lim_check_wpa_rsn_ie(struct pe_session *session,
 			 */
 			lim_send_assoc_rsp_mgmt_frame(
 				mac_ctx,
-				eSIR_MAC_UNSUPPORTED_RSN_IE_VERSION_STATUS,
+				STATUS_UNSUPPORTED_RSN_IE_VERSION,
 				1, hdr->sa, sub_type, 0, session, false);
 			return false;
 		}
@@ -1046,7 +1048,7 @@ static bool lim_check_wpa_rsn_ie(struct pe_session *session,
 
 		status = lim_check_sae_pmf_cap(session, &dot11f_ie_rsn,
 					       *akm_type);
-		if (eSIR_MAC_SUCCESS_STATUS != status) {
+		if (status != STATUS_SUCCESS) {
 			/* Reject pmf disable SAE STA */
 			pe_warn("Re/Assoc rejected from: " QDF_MAC_ADDR_FMT,
 				QDF_MAC_ADDR_REF(hdr->sa));
@@ -1064,7 +1066,7 @@ static bool lim_check_wpa_rsn_ie(struct pe_session *session,
 
 			/* rcvd Assoc req frame with invalid WPA IE length */
 			lim_send_assoc_rsp_mgmt_frame(
-				mac_ctx, eSIR_MAC_INVALID_IE_STATUS, 1,
+				mac_ctx, STATUS_INVALID_IE, 1,
 				hdr->sa, sub_type, 0, session, false);
 			return false;
 		}
@@ -1076,7 +1078,7 @@ static bool lim_check_wpa_rsn_ie(struct pe_session *session,
 		if (!DOT11F_SUCCEEDED(ret)) {
 			pe_err("Invalid WPA IE");
 			lim_send_assoc_rsp_mgmt_frame(
-				mac_ctx, eSIR_MAC_INVALID_IE_STATUS, 1,
+				mac_ctx, STATUS_INVALID_IE, 1,
 				hdr->sa, sub_type, 0, session, false);
 			return false;
 		}
@@ -1084,7 +1086,7 @@ static bool lim_check_wpa_rsn_ie(struct pe_session *session,
 		/* check the groupwise and pairwise cipher suites*/
 		status = lim_check_wpa_ie(session, mac_ctx, assoc_req,
 					  &dot11f_ie_wpa);
-		if (eSIR_MAC_SUCCESS_STATUS != status) {
+		if (status != STATUS_SUCCESS) {
 			pe_warn("Re/Assoc rejected from: "
 				QDF_MAC_ADDR_FMT,
 				QDF_MAC_ADDR_REF(hdr->sa));
@@ -1183,7 +1185,7 @@ static bool lim_process_assoc_req_no_sta_ctx(struct mac_context *mac_ctx,
 				mac_ctx->lim.maxStation);
 		lim_reject_association(mac_ctx, hdr->sa, sub_type, false,
 			(tAniAuthType) 0, 0, false,
-			eSIR_MAC_UNSPEC_FAILURE_STATUS,
+			STATUS_UNSPECIFIED_FAILURE,
 			session);
 		return false;
 	}
@@ -1198,7 +1200,7 @@ static bool lim_process_assoc_req_no_sta_ctx(struct mac_context *mac_ctx,
 		 * reason code.
 		 */
 		lim_send_deauth_mgmt_frame(mac_ctx,
-				eSIR_MAC_STA_NOT_PRE_AUTHENTICATED_REASON,
+				REASON_STA_NOT_AUTHENTICATED,
 				hdr->sa, session, false);
 
 		pe_warn("rcvd %s req, sessionid: %d, without pre-auth ctx"
@@ -1304,8 +1306,8 @@ static bool lim_process_assoc_req_sta_ctx(struct mac_context *mac_ctx,
 			 */
 			sta_ds->pmfSaQueryRetryCount = 0;
 			lim_send_assoc_rsp_mgmt_frame(
-				mac_ctx, eSIR_MAC_TRY_AGAIN_LATER, 1, hdr->sa,
-				sub_type, sta_ds, session, false);
+				mac_ctx, STATUS_ASSOC_REJECTED_TEMPORARILY, 1,
+				hdr->sa, sub_type, sta_ds, session, false);
 			lim_send_sa_query_request_frame(mac_ctx,
 				(uint8_t *) &(sta_ds->pmfSaQueryCurrentTransId),
 				hdr->sa, session);
@@ -1327,7 +1329,7 @@ static bool lim_process_assoc_req_sta_ctx(struct mac_context *mac_ctx,
 		 */
 		case DPH_SA_QUERY_IN_PROGRESS:
 			lim_send_assoc_rsp_mgmt_frame(
-				mac_ctx, eSIR_MAC_TRY_AGAIN_LATER, 1,
+				mac_ctx, STATUS_ASSOC_REJECTED_TEMPORARILY, 1,
 				hdr->sa, sub_type, 0, session, false);
 			return false;
 
@@ -1416,8 +1418,7 @@ static bool lim_chk_wmm(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 					QDF_STATUS_SUCCESS) {
 				pe_warn("AdmitControl: TSPEC rejected");
 				lim_send_assoc_rsp_mgmt_frame(
-					mac_ctx,
-					eSIR_MAC_QAP_NO_BANDWIDTH_REASON,
+					mac_ctx, REASON_NO_BANDWIDTH,
 					1, hdr->sa, sub_type, 0, session,
 					false);
 #ifdef WLAN_DEBUG
@@ -1429,7 +1430,7 @@ static bool lim_chk_wmm(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 				!= QDF_STATUS_SUCCESS) {
 			pe_warn("AdmitControl: Sta rejected");
 			lim_send_assoc_rsp_mgmt_frame(
-				mac_ctx, eSIR_MAC_QAP_NO_BANDWIDTH_REASON, 1,
+				mac_ctx, REASON_NO_BANDWIDTH, 1,
 				hdr->sa, sub_type, 0, session, false);
 #ifdef WLAN_DEBUG
 			mac_ctx->lim.gLimNumAssocReqDropACRejectSta++;
@@ -1448,6 +1449,29 @@ static void lim_update_sta_ds_op_classes(tpSirAssocReq assoc_req,
 	qdf_mem_copy(&sta_ds->supp_operating_classes,
 		     &assoc_req->supp_operating_classes,
 		     sizeof(tDot11fIESuppOperatingClasses));
+}
+
+static bool lim_is_ocv_enable_in_assoc_req(struct mac_context *mac_ctx,
+					   struct sSirAssocReq *assoc_req)
+{
+	uint32_t ret;
+	tDot11fIERSN dot11f_ie_rsn = {0};
+
+	if ((assoc_req->rsnPresent) && !(assoc_req->rsn.length))
+		return false;
+
+	/* Unpack the RSN IE */
+	ret = dot11f_unpack_ie_rsn(mac_ctx, &assoc_req->rsn.info[0],
+				   assoc_req->rsn.length, &dot11f_ie_rsn,
+				   false);
+	if (!DOT11F_SUCCEEDED(ret))
+		return false;
+
+	if (*(uint16_t *)&dot11f_ie_rsn.RSN_Cap &
+	    WLAN_CRYPTO_RSN_CAP_OCV_SUPPORTED)
+		return true;
+
+	return false;
 }
 
 /**
@@ -1505,11 +1529,7 @@ static bool lim_update_sta_ds(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 	if (session->parsedAssocReq) {
 		tmp_assoc_req = session->parsedAssocReq[sta_ds->assocId];
 		if (tmp_assoc_req) {
-			if (tmp_assoc_req->assocReqFrame) {
-				qdf_mem_free(tmp_assoc_req->assocReqFrame);
-				tmp_assoc_req->assocReqFrame = NULL;
-				tmp_assoc_req->assocReqFrameLength = 0;
-			}
+			lim_free_assoc_req_frm_buf(tmp_assoc_req);
 			qdf_mem_free(tmp_assoc_req);
 			tmp_assoc_req = NULL;
 		}
@@ -1574,7 +1594,7 @@ static bool lim_update_sta_ds(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 		/* assoc_req will be copied to session->parsedAssocReq later */
 		ht_cap_ie = ((uint8_t *) &assoc_req->HTCaps) + 1;
 
-		if (session->ht_config.ht_sgi20) {
+		if (session->ht_config.short_gi_20_mhz) {
 			sta_ds->htShortGI20Mhz =
 				(uint8_t)assoc_req->HTCaps.shortGI20MHz;
 		} else {
@@ -1583,7 +1603,7 @@ static bool lim_update_sta_ds(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 			sta_ds->htShortGI20Mhz = 0;
 		}
 
-		if (session->ht_config.ht_sgi40) {
+		if (session->ht_config.short_gi_40_mhz) {
 			sta_ds->htShortGI40Mhz =
 				(uint8_t)assoc_req->HTCaps.shortGI40MHz;
 		} else {
@@ -1697,7 +1717,7 @@ static bool lim_update_sta_ds(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 				assoc_req->qcn_ie.vht_mcs11_attr.
 				vht_mcs_10_11_supp;
 	}
-	lim_intersect_sta_he_caps(assoc_req, session, sta_ds);
+	lim_intersect_sta_he_caps(mac_ctx, assoc_req, session, sta_ds);
 
 	if (lim_populate_matching_rate_set(mac_ctx, sta_ds,
 			&(assoc_req->supportedRates),
@@ -1715,7 +1735,7 @@ static bool lim_update_sta_ds(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 
 		lim_reject_association(mac_ctx, hdr->sa,
 			sub_type, true, auth_type, peer_idx, false,
-			eSIR_MAC_UNSPEC_FAILURE_STATUS,
+			STATUS_UNSPECIFIED_FAILURE,
 			session);
 		pe_err("Delete dph hash entry");
 		if (dph_delete_hash_entry(mac_ctx, hdr->sa, sta_ds->assocId,
@@ -1727,8 +1747,8 @@ static bool lim_update_sta_ds(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 		sta_ds->vhtSupportedRxNss = assoc_req->operMode.rxNSS + 1;
 	} else {
 		sta_ds->vhtSupportedRxNss =
-			((sta_ds->supportedRates.vhtRxMCSMap & MCSMAPMASK2x2)
-				== MCSMAPMASK2x2) ? 1 : 2;
+			 ((sta_ds->supportedRates.vhtTxMCSMap & MCSMAPMASK2x2)
+			  == MCSMAPMASK2x2) ? 1 : 2;
 	}
 	lim_update_stads_he_6ghz_op(session, sta_ds);
 	lim_update_sta_ds_op_classes(assoc_req, sta_ds);
@@ -1801,6 +1821,8 @@ static bool lim_update_sta_ds(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 		retry_interval = cfg_default(CFG_PMF_SA_QUERY_RETRY_INTERVAL);
 	}
 	if (sta_ds->rmfEnabled) {
+		sta_ds->ocv_enabled = lim_is_ocv_enable_in_assoc_req(mac_ctx,
+								     assoc_req);
 		/* Try to delete it before, creating.*/
 		lim_delete_pmf_query_timer(sta_ds);
 		if (tx_timer_create(mac_ctx, &sta_ds->pmfSaQueryTimer,
@@ -1811,7 +1833,7 @@ static bool lim_update_sta_ds(struct mac_context *mac_ctx, tpSirMacMgmtHdr hdr,
 			pe_err("could not create PMF SA Query timer");
 			lim_reject_association(mac_ctx, hdr->sa, sub_type,
 					       true, auth_type, peer_idx, false,
-					       eSIR_MAC_UNSPEC_FAILURE_STATUS,
+					       STATUS_UNSPECIFIED_FAILURE,
 					       session);
 			return false;
 		}
@@ -1873,7 +1895,7 @@ static bool lim_update_sta_ctx(struct mac_context *mac_ctx, struct pe_session *s
 				sta_ds->mlmStaContext.subType, true,
 				sta_ds->mlmStaContext.authType,
 				sta_ds->assocId, true,
-				eSIR_MAC_UNSPEC_FAILURE_STATUS,
+				STATUS_UNSPECIFIED_FAILURE,
 				session);
 
 			if (session->parsedAssocReq)
@@ -1905,7 +1927,7 @@ static bool lim_update_sta_ctx(struct mac_context *mac_ctx, struct pe_session *s
 					sta_ds->mlmStaContext.subType, true,
 					sta_ds->mlmStaContext.authType,
 					sta_ds->assocId, true,
-					eSIR_MAC_UNSPEC_FAILURE_STATUS,
+					STATUS_UNSPECIFIED_FAILURE,
 					session);
 
 				/* Restoring the state back. */
@@ -1927,7 +1949,7 @@ static bool lim_update_sta_ctx(struct mac_context *mac_ctx, struct pe_session *s
 					sta_ds->mlmStaContext.subType, true,
 					sta_ds->mlmStaContext.authType,
 					sta_ds->assocId, true,
-					eSIR_MAC_WME_REFUSED_STATUS,
+					STATUS_TDLS_WAKEUP_REJECT,
 					session);
 
 				/* Restoring the state back. */
@@ -1951,11 +1973,7 @@ void lim_process_assoc_cleanup(struct mac_context *mac_ctx,
 	tpSirAssocReq tmp_assoc_req;
 
 	if (assoc_req) {
-		if (assoc_req->assocReqFrame) {
-			qdf_mem_free(assoc_req->assocReqFrame);
-			assoc_req->assocReqFrame = NULL;
-			assoc_req->assocReqFrameLength = 0;
-		}
+		lim_free_assoc_req_frm_buf(assoc_req);
 
 		qdf_mem_free(assoc_req);
 		/* to avoid double free */
@@ -1970,12 +1988,7 @@ void lim_process_assoc_cleanup(struct mac_context *mac_ctx,
 			tmp_assoc_req =
 				session->parsedAssocReq[sta_ds->assocId];
 			if (tmp_assoc_req) {
-				if (tmp_assoc_req->assocReqFrame) {
-					qdf_mem_free(
-						tmp_assoc_req->assocReqFrame);
-					tmp_assoc_req->assocReqFrame = NULL;
-					tmp_assoc_req->assocReqFrameLength = 0;
-				}
+				lim_free_assoc_req_frm_buf(tmp_assoc_req);
 				qdf_mem_free(tmp_assoc_req);
 				session->parsedAssocReq[sta_ds->assocId] = NULL;
 			}
@@ -2098,7 +2111,7 @@ bool lim_send_assoc_ind_to_sme(struct mac_context *mac_ctx,
 		pe_err("PeerIdx not avaialble. Reject associaton");
 		lim_reject_association(mac_ctx, hdr->sa, sub_type,
 				       true, auth_type, peer_idx, false,
-				       eSIR_MAC_UNSPEC_FAILURE_STATUS,
+				       STATUS_UNSPECIFIED_FAILURE,
 				       session);
 		return false;
 	}
@@ -2118,7 +2131,7 @@ bool lim_send_assoc_ind_to_sme(struct mac_context *mac_ctx,
 
 		lim_reject_association(mac_ctx, hdr->sa, sub_type,
 				       true, auth_type, peer_idx, false,
-				       eSIR_MAC_UNSPEC_FAILURE_STATUS,
+				       STATUS_UNSPECIFIED_FAILURE,
 			session);
 		return false;
 	}
@@ -2129,7 +2142,7 @@ bool lim_send_assoc_ind_to_sme(struct mac_context *mac_ctx,
 			lim_reject_association(mac_ctx, hdr->sa, sub_type,
 					       true, auth_type, peer_idx,
 					       true,
-					       eSIR_MAC_UNSPEC_FAILURE_STATUS,
+					       STATUS_UNSPECIFIED_FAILURE,
 					       session);
 			return false;
 		}
@@ -2316,7 +2329,7 @@ void lim_process_assoc_req_frame(struct mac_context *mac_ctx, uint8_t *rx_pkt_in
 			 * where some STA does expect 4-way handshake.
 			 */
 			lim_send_assoc_rsp_mgmt_frame(
-				mac_ctx, eSIR_MAC_OUTSIDE_SCOPE_OF_SPEC_STATUS,
+				mac_ctx, STATUS_ASSOC_DENIED_UNSPEC,
 				sta_ds->assocId, sta_ds->staAddr,
 				sub_type, sta_ds, session, false);
 			pe_err("Rejecting reassoc req from STA");
@@ -2353,7 +2366,7 @@ void lim_process_assoc_req_frame(struct mac_context *mac_ctx, uint8_t *rx_pkt_in
 		 */
 		lim_send_assoc_rsp_mgmt_frame(
 			mac_ctx,
-			eSIR_MAC_UNSPEC_FAILURE_STATUS,
+			STATUS_UNSPECIFIED_FAILURE,
 			1, hdr->sa,
 			sub_type, 0, session, false);
 		return;
@@ -2380,9 +2393,6 @@ void lim_process_assoc_req_frame(struct mac_context *mac_ctx, uint8_t *rx_pkt_in
 	if (false == lim_chk_sa_da(mac_ctx, hdr, session, sub_type))
 		return;
 
-	if (false == lim_chk_tkip(mac_ctx, hdr, session, sub_type))
-		return;
-
 	/* check for the presence of vendor IE */
 	if ((session->access_policy_vendor_ie) &&
 		(session->access_policy ==
@@ -2399,7 +2409,7 @@ void lim_process_assoc_req_frame(struct mac_context *mac_ctx, uint8_t *rx_pkt_in
 			pe_err("Vendor ie not present and access policy is %x, Rejected association",
 				session->access_policy);
 			lim_send_assoc_rsp_mgmt_frame(
-				mac_ctx, eSIR_MAC_UNSPEC_FAILURE_STATUS,
+				mac_ctx, STATUS_UNSPECIFIED_FAILURE,
 				1, hdr->sa, sub_type, 0, session, false);
 			return;
 		}
@@ -2414,13 +2424,11 @@ void lim_process_assoc_req_frame(struct mac_context *mac_ctx, uint8_t *rx_pkt_in
 				assoc_req, sub_type, frm_body, frame_len))
 		goto error;
 
-	assoc_req->assocReqFrame = qdf_mem_malloc(frame_len);
-	if (!assoc_req->assocReqFrame)
+	if (!lim_alloc_assoc_req_frm_buf(assoc_req,
+					 WMA_GET_QDF_NBUF(rx_pkt_info),
+					 WMA_GET_RX_MAC_HEADER_LEN(rx_pkt_info),
+					 frame_len))
 		goto error;
-
-	qdf_mem_copy((uint8_t *) assoc_req->assocReqFrame,
-		(uint8_t *) frm_body, frame_len);
-	assoc_req->assocReqFrameLength = frame_len;
 
 	if (false == lim_chk_capab(mac_ctx, hdr, session, assoc_req,
 				sub_type, &local_cap))
@@ -2656,20 +2664,6 @@ static void lim_fill_assoc_ind_vht_info(struct mac_context *mac_ctx,
 	return;
 }
 
-static uint8_t lim_get_max_rate_idx(tSirMacRateSet *rateset)
-{
-	uint8_t maxidx;
-	int i;
-
-	maxidx = rateset->rate[0] & 0x7f;
-	for (i = 1; i < rateset->numRates; i++) {
-		if ((rateset->rate[i] & 0x7f) > maxidx)
-			maxidx = rateset->rate[i] & 0x7f;
-	}
-
-	return maxidx;
-}
-
 static void fill_mlm_assoc_ind_vht(tpSirAssocReq assocreq,
 		tpDphHashNode stads,
 		tpLimMlmAssocInd assocind)
@@ -2733,6 +2727,42 @@ lim_convert_channel_width_enum(enum phy_ch_width ch_width)
 	return eHT_CHANNEL_WIDTH_20MHZ;
 }
 
+/**
+ * lim_fill_assoc_ind_real_max_mcs_idx() - fill max real mcs index to assoc ind
+ * @assoc_ind: assoc_ind to fill
+ * @assoc_req: pointer to tpSirAssocReq
+ * @sta_ds: pointer to tpDphHashNode
+ * @session: pointer to session
+ *
+ * Return: void
+ */
+static void lim_fill_assoc_ind_real_max_mcs_idx(tpLimMlmAssocInd assoc_ind,
+						tpSirAssocReq assoc_req,
+						tpDphHashNode sta_ds,
+						struct pe_session *session)
+{
+	assoc_ind->max_real_mcs_idx = INVALID_MCS_NSS_INDEX;
+
+	if (lim_is_sta_he_capable(sta_ds) &&
+	    lim_is_session_he_capable(session))
+		assoc_ind->max_real_mcs_idx = lim_get_he_max_mcs_idx(
+					sta_ds->ch_width, &assoc_req->he_cap);
+
+	if (assoc_ind->max_real_mcs_idx == INVALID_MCS_NSS_INDEX &&
+	    sta_ds->mlmStaContext.vhtCapability)
+		assoc_ind->max_real_mcs_idx =
+				lim_get_vht_max_mcs_idx(&assoc_req->VHTCaps);
+
+	if (assoc_ind->max_real_mcs_idx == INVALID_MCS_NSS_INDEX)
+		assoc_ind->max_real_mcs_idx = assoc_ind->max_mcs_idx;
+
+	if (assoc_ind->max_real_mcs_idx == INVALID_MCS_NSS_INDEX)
+		assoc_ind->max_real_mcs_idx = assoc_ind->max_ext_idx;
+
+	if (assoc_ind->max_real_mcs_idx == INVALID_MCS_NSS_INDEX)
+		assoc_ind->max_real_mcs_idx = assoc_ind->max_supp_idx;
+}
+
 bool lim_fill_lim_assoc_ind_params(
 		tpLimMlmAssocInd assoc_ind,
 		struct mac_context *mac_ctx,
@@ -2743,8 +2773,11 @@ bool lim_fill_lim_assoc_ind_params(
 	uint16_t rsn_len;
 	uint32_t phy_mode;
 	const uint8_t *wpsie = NULL;
-	uint8_t maxidx, i;
 	bool wme_enable;
+	struct wlan_objmgr_vdev *vdev;
+	struct vdev_mlme_obj *mlme_obj;
+	uint8_t country_iso[REG_ALPHA2_LEN + 1];
+	tDot11fIESuppOperatingClasses *oper_class;
 
 	if (!session_entry->parsedAssocReq) {
 		pe_err(" Parsed Assoc req is NULL");
@@ -2875,8 +2908,6 @@ bool lim_fill_lim_assoc_ind_params(
 	/* Required for indicating the frames to upper layer */
 	assoc_ind->assocReqLength = assoc_req->assocReqFrameLength;
 	assoc_ind->assocReqPtr = assoc_req->assocReqFrame;
-	assoc_ind->beaconPtr = session_entry->beacon;
-	assoc_ind->beaconLength = session_entry->bcnLen;
 
 	assoc_ind->chan_info.mhz = session_entry->curr_op_freq;
 	assoc_ind->chan_info.band_center_freq1 =
@@ -2895,9 +2926,9 @@ bool lim_fill_lim_assoc_ind_params(
 	assoc_ind->rx_stbc = false;
 	assoc_ind->ch_width = eHT_CHANNEL_WIDTH_20MHZ;
 	assoc_ind->mode = SIR_SME_PHY_MODE_LEGACY;
-	assoc_ind->max_supp_idx = 0xff;
-	assoc_ind->max_ext_idx = 0xff;
-	assoc_ind->max_mcs_idx = 0xff;
+	assoc_ind->max_supp_idx = INVALID_MCS_NSS_INDEX;
+	assoc_ind->max_ext_idx = INVALID_MCS_NSS_INDEX;
+	assoc_ind->max_mcs_idx = INVALID_MCS_NSS_INDEX;
 	assoc_ind->rx_mcs_map = 0xff;
 	assoc_ind->tx_mcs_map = 0xff;
 
@@ -2927,18 +2958,34 @@ bool lim_fill_lim_assoc_ind_params(
 			eHT_CHANNEL_WIDTH_20MHZ;
 		/* mode */
 		assoc_ind->mode = SIR_SME_PHY_MODE_HT;
-		maxidx = 0;
-		for (i = 0; i < 8; i++) {
-			if (assoc_req->HTCaps.supportedMCSSet[0] &
-			    (1 << i))
-				maxidx = i;
-		}
-		assoc_ind->max_mcs_idx = maxidx;
+		assoc_ind->max_mcs_idx = lim_get_ht_max_mcs_idx(
+						&assoc_req->HTCaps);
 	}
 	fill_mlm_assoc_ind_vht(assoc_req, sta_ds, assoc_ind);
-	if (assoc_req->ExtCap.present)
+	if (assoc_req->ExtCap.present) {
 		assoc_ind->ecsa_capable =
 		((struct s_ext_cap *)assoc_req->ExtCap.bytes)->ext_chan_switch;
+		if (assoc_req->ExtCap.num_bytes >= sizeof(assoc_ind->ext_cap))
+			qdf_mem_copy(&assoc_ind->ext_cap,
+				     assoc_req->ExtCap.bytes,
+				     sizeof(assoc_ind->ext_cap));
+		else
+			qdf_mem_copy(&assoc_ind->ext_cap,
+				     assoc_req->ExtCap.bytes,
+				     assoc_req->ExtCap.num_bytes);
+	}
+
+	if (assoc_req->supp_operating_classes.present) {
+		oper_class = &assoc_req->supp_operating_classes;
+		qdf_mem_zero(country_iso, sizeof(country_iso));
+		country_iso[2] = OP_CLASS_GLOBAL;
+		assoc_ind->supported_band =
+				wlan_reg_get_band_cap_from_op_class(
+						country_iso,
+						oper_class->num_classes,
+						oper_class->classes);
+	}
+
 	/* updates VHT information in assoc indication */
 	if (assoc_req->VHTCaps.present)
 		qdf_mem_copy(&assoc_ind->vht_caps, &assoc_req->VHTCaps,
@@ -2957,22 +3004,28 @@ bool lim_fill_lim_assoc_ind_params(
 	if (wlan_reg_is_6ghz_chan_freq(session_entry->curr_op_freq))
 		assoc_ind->ch_width =
 			lim_convert_channel_width_enum(sta_ds->ch_width);
+	lim_fill_assoc_ind_real_max_mcs_idx(assoc_ind, assoc_req,
+					    sta_ds, session_entry);
+
+	vdev = session_entry->vdev;
+	if (!vdev)
+		return true;
+
+	mlme_obj = wlan_vdev_mlme_get_cmpt_obj(vdev);
+	if (!mlme_obj)
+		pe_err("vdev component object is NULL");
+	else
+		qdf_mem_copy(
+			&mlme_obj->ext_vdev_ptr->connect_info.chan_info,
+			&assoc_ind->chan_info,
+			sizeof(mlme_obj->ext_vdev_ptr->connect_info.chan_info));
+
 	return true;
 }
 
-/**
- * lim_send_mlm_assoc_ind() - Sends assoc indication to SME
- * @mac_ctx: Global Mac context
- * @sta_ds: Station DPH hash entry
- * @session_entry: PE session entry
- *
- * This function sends either LIM_MLM_ASSOC_IND
- * or LIM_MLM_REASSOC_IND to SME.
- *
- * Return: None
- */
-void lim_send_mlm_assoc_ind(struct mac_context *mac_ctx,
-	tpDphHashNode sta_ds, struct pe_session *session_entry)
+QDF_STATUS lim_send_mlm_assoc_ind(struct mac_context *mac_ctx,
+				  tpDphHashNode sta_ds,
+				  struct pe_session *session_entry)
 {
 	tpLimMlmAssocInd assoc_ind;
 	tpSirAssocReq assoc_req;
@@ -2982,7 +3035,7 @@ void lim_send_mlm_assoc_ind(struct mac_context *mac_ctx,
 
 	if (!session_entry->parsedAssocReq) {
 		pe_err(" Parsed Assoc req is NULL");
-		return;
+		return QDF_STATUS_E_INVAL;
 	}
 
 	/* Get a copy of the already parsed Assoc Request */
@@ -2991,7 +3044,7 @@ void lim_send_mlm_assoc_ind(struct mac_context *mac_ctx,
 
 	if (!assoc_req) {
 		pe_err("assoc req for assoc_id:%d is NULL", sta_ds->assocId);
-		return;
+		return QDF_STATUS_E_INVAL;
 	}
 
 	/* Get the phy_mode */
@@ -3008,6 +3061,12 @@ void lim_send_mlm_assoc_ind(struct mac_context *mac_ctx,
 		 assoc_req->ssId.ssId, sub_type, sta_ds->assocId,
 		 QDF_MAC_ADDR_REF(sta_ds->staAddr));
 
+	wlan_son_ind_assoc_req_frm(session_entry->vdev, sta_ds->staAddr,
+				   assoc_req->reassocRequest,
+				   qdf_nbuf_data(assoc_req->assoc_req_buf),
+				   qdf_nbuf_len(assoc_req->assoc_req_buf),
+				   QDF_STATUS_SUCCESS);
+
 	if (sub_type == LIM_ASSOC || sub_type == LIM_REASSOC) {
 		temp = sizeof(tLimMlmAssocInd);
 
@@ -3015,17 +3074,17 @@ void lim_send_mlm_assoc_ind(struct mac_context *mac_ctx,
 		if (!assoc_ind) {
 			lim_release_peer_idx(mac_ctx, sta_ds->assocId,
 					     session_entry);
-			return;
+			return QDF_STATUS_E_INVAL;
 		}
 		if (!lim_fill_lim_assoc_ind_params(assoc_ind, mac_ctx,
 						   sta_ds, session_entry)) {
 			qdf_mem_free(assoc_ind);
-			return;
+			return QDF_STATUS_E_INVAL;
 		}
 		lim_post_sme_message(mac_ctx, LIM_MLM_ASSOC_IND,
 				     (uint32_t *)assoc_ind);
 		qdf_mem_free(assoc_ind);
 	}
 
-	return;
+	return QDF_STATUS_SUCCESS;
 }

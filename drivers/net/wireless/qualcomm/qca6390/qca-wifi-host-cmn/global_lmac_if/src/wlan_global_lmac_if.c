@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2016-2019 The Linux Foundation. All rights reserved.
- *
+ * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -80,6 +80,66 @@ static void wlan_spectral_register_rx_ops(struct wlan_lmac_if_rx_ops *rx_ops)
 }
 #endif /*WLAN_CONV_SPECTRAL_ENABLE*/
 
+#ifdef WLAN_IOT_SIM_SUPPORT
+/* Function pointer for iot_sim rx_ops registration function */
+void (*wlan_lmac_if_iot_sim_rx_ops)(struct wlan_lmac_if_rx_ops *rx_ops);
+
+QDF_STATUS wlan_lmac_if_iot_sim_set_rx_ops_register_cb(void (*handler)
+				(struct wlan_lmac_if_rx_ops *))
+{
+	wlan_lmac_if_iot_sim_rx_ops = handler;
+
+	return QDF_STATUS_SUCCESS;
+}
+
+qdf_export_symbol(wlan_lmac_if_iot_sim_set_rx_ops_register_cb);
+
+static void wlan_iot_sim_register_rx_ops(struct wlan_lmac_if_rx_ops *rx_ops)
+{
+	if (wlan_lmac_if_iot_sim_rx_ops)
+		wlan_lmac_if_iot_sim_rx_ops(rx_ops);
+	else
+		qdf_print("\n***** IOT SIM MODULE NOT LOADED *****\n");
+}
+
+#else
+static void wlan_iot_sim_register_rx_ops(struct wlan_lmac_if_rx_ops *rx_ops)
+{
+}
+#endif
+
+#if defined(QCA_SUPPORT_SON) || defined(WLAN_FEATURE_SON)
+/* Function pointer for son rx_ops registration function */
+void (*wlan_lmac_if_son_rx_ops)(struct wlan_lmac_if_rx_ops *rx_ops);
+
+QDF_STATUS wlan_lmac_if_son_set_rx_ops_register_cb(void (*handler)
+				(struct wlan_lmac_if_rx_ops *))
+{
+	wlan_lmac_if_son_rx_ops = handler;
+
+	return QDF_STATUS_SUCCESS;
+}
+
+qdf_export_symbol(wlan_lmac_if_son_set_rx_ops_register_cb);
+
+static void wlan_son_register_rx_ops(struct wlan_lmac_if_rx_ops *rx_ops)
+{
+	if (wlan_lmac_if_son_rx_ops)
+		wlan_lmac_if_son_rx_ops(rx_ops);
+	else
+		qdf_info("\n***** SON MODULE NOT LOADED *****\n");
+}
+
+void wlan_lmac_if_son_mod_register_rx_ops(struct wlan_lmac_if_rx_ops *rx_ops)
+{
+	wlan_son_register_rx_ops(rx_ops);
+}
+#else
+static void wlan_son_register_rx_ops(struct wlan_lmac_if_rx_ops *rx_ops)
+{
+}
+#endif
+
 /**
  * wlan_global_lmac_if_rx_ops_register() - Global lmac_if
  * rx handler register
@@ -98,7 +158,7 @@ wlan_global_lmac_if_rx_ops_register(struct wlan_lmac_if_rx_ops *rx_ops)
 	 * Ex: rx_ops->fp = function;
 	 */
 	if (!rx_ops) {
-		qdf_print("%s: lmac if rx ops pointer is NULL", __func__);
+		qdf_err("lmac if rx ops pointer is NULL");
 		return QDF_STATUS_E_INVAL;
 	}
 	/* Registeration for UMAC componets */
@@ -106,6 +166,12 @@ wlan_global_lmac_if_rx_ops_register(struct wlan_lmac_if_rx_ops *rx_ops)
 
 	/* spectral rx_ops registration*/
 	wlan_spectral_register_rx_ops(rx_ops);
+
+	/* iot_sim rx_ops registration*/
+	wlan_iot_sim_register_rx_ops(rx_ops);
+
+	/* son rx_ops registration*/
+	wlan_son_register_rx_ops(rx_ops);
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -123,19 +189,45 @@ QDF_STATUS wlan_global_lmac_if_open(struct wlan_objmgr_psoc *psoc)
 {
 	WLAN_DEV_TYPE dev_type;
 
+	struct wlan_lmac_if_tx_ops *tx_ops;
+	struct wlan_lmac_if_rx_ops *rx_ops;
+
+	if (!psoc) {
+		qdf_err("psoc is NULL");
+		return QDF_STATUS_E_INVAL;
+	}
+
+	tx_ops = qdf_mem_malloc(sizeof(*tx_ops));
+	if (!tx_ops) {
+		qdf_err("tx_ops is NULL");
+		return QDF_STATUS_E_NOMEM;
+	}
+
+	rx_ops = qdf_mem_malloc(sizeof(*rx_ops));
+	if (!rx_ops) {
+		qdf_err("rx_ops is NULL");
+		qdf_mem_free(tx_ops);
+		return QDF_STATUS_E_NOMEM;
+	}
+
+	wlan_psoc_set_lmac_if_txops(psoc, tx_ops);
+	wlan_psoc_set_lmac_if_rxops(psoc, rx_ops);
+
 	dev_type = psoc->soc_nif.phy_type;
 
-	if (dev_type == WLAN_DEV_DA || dev_type == WLAN_DEV_OL) {
+	if (dev_type == WLAN_DEV_OL) {
 		wlan_global_lmac_if_tx_ops_register[dev_type]
-					(&psoc->soc_cb.tx_ops);
+					(tx_ops);
 	} else {
 		/* Control should ideally not reach here */
 		qdf_print("Invalid device type");
+		qdf_mem_free(tx_ops);
+		qdf_mem_free(rx_ops);
 		return QDF_STATUS_E_INVAL;
 	}
 
 	/* Function call to register rx-ops handlers */
-	wlan_global_lmac_if_rx_ops_register(&psoc->soc_cb.rx_ops);
+	wlan_global_lmac_if_rx_ops_register(rx_ops);
 
 	target_if_wake_lock_init(psoc);
 
@@ -153,9 +245,23 @@ qdf_export_symbol(wlan_global_lmac_if_open);
  */
 QDF_STATUS wlan_global_lmac_if_close(struct wlan_objmgr_psoc *psoc)
 {
+	struct wlan_lmac_if_tx_ops *tx_ops;
+	struct wlan_lmac_if_rx_ops *rx_ops;
+
+	if (!psoc) {
+		qdf_err("psoc is NULL");
+		return QDF_STATUS_E_INVAL;
+	}
+
 	target_if_wake_lock_deinit(psoc);
-	qdf_mem_zero(&psoc->soc_cb.tx_ops, sizeof(psoc->soc_cb.tx_ops));
-	qdf_mem_zero(&psoc->soc_cb.rx_ops, sizeof(psoc->soc_cb.rx_ops));
+	tx_ops = wlan_psoc_get_lmac_if_txops(psoc);
+	rx_ops = wlan_psoc_get_lmac_if_rxops(psoc);
+
+	wlan_psoc_set_lmac_if_txops(psoc, NULL);
+	wlan_psoc_set_lmac_if_rxops(psoc, NULL);
+
+	qdf_mem_free(tx_ops);
+	qdf_mem_free(rx_ops);
 
 	return QDF_STATUS_SUCCESS;
 }

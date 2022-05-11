@@ -24,7 +24,7 @@
 #include <linux/pm.h>
 #include <osapi_linux.h>
 
-#ifdef CONFIG_CNSS_UTILS
+#if IS_ENABLED(CONFIG_CNSS_UTILS)
 #include <net/cnss_utils.h>
 #endif
 
@@ -38,8 +38,13 @@
 
 #define TOTAL_DUMP_SIZE         0x00200000
 
-#ifdef CONFIG_WCNSS_MEM_PRE_ALLOC
+#if IS_ENABLED(CONFIG_WCNSS_MEM_PRE_ALLOC)
 #include <net/cnss_prealloc.h>
+#endif
+
+#ifdef MULTI_CARD
+#include <net/cnss2.h>
+#include <net/multi_card.h>
 #endif
 
 /**
@@ -52,6 +57,7 @@
  * @PLD_BUS_TYPE_SNOC_FW_SIM : SNOC FW SIM bus
  * @PLD_BUS_TYPE_PCIE_FW_SIM : PCIE FW SIM bus
  * @PLD_BUS_TYPE_IPCI : IPCI bus
+ * @PLD_BUS_TYPE_IPCI_FW_SIM : IPCI FW SIM bus
  */
 enum pld_bus_type {
 	PLD_BUS_TYPE_NONE = -1,
@@ -62,6 +68,7 @@ enum pld_bus_type {
 	PLD_BUS_TYPE_SNOC_FW_SIM,
 	PLD_BUS_TYPE_PCIE_FW_SIM,
 	PLD_BUS_TYPE_IPCI,
+	PLD_BUS_TYPE_IPCI_FW_SIM,
 };
 
 #define PLD_MAX_FIRMWARE_SIZE (1 * 1024 * 1024)
@@ -383,6 +390,11 @@ enum pld_wlan_time_sync_trigger_type {
  *                  hardware or at the request of software.
  * @suspend_noirq: optional operation, complete the actions started by suspend()
  * @resume_noirq: optional operation, prepare for the execution of resume()
+ * @set_curr_therm_cdev_state: optional operation, will be called when there is
+ *                        change in the thermal level triggered by the thermal
+ *                        subsystem thus requiring mitigation actions. This will
+ *                        be called every time there is a change in the state
+ *                        and after driver load.
  */
 struct pld_driver_ops {
 	int (*probe)(struct device *dev,
@@ -420,10 +432,22 @@ struct pld_driver_ops {
 			     enum pld_bus_type bus_type);
 	int (*resume_noirq)(struct device *dev,
 			    enum pld_bus_type bus_type);
+	int (*set_curr_therm_cdev_state)(struct device *dev,
+					 unsigned long state,
+					 int mon_id);
 };
 
 int pld_init(void);
 void pld_deinit(void);
+
+/**
+ * pld_set_mode() - set driver mode in PLD module
+ * @mode: driver mode
+ *
+ * Return: 0 for success
+ *         Non zero failure code for errors
+ */
+int pld_set_mode(u8 mode);
 
 int pld_register_driver(struct pld_driver_ops *ops);
 void pld_unregister_driver(void);
@@ -438,7 +462,20 @@ int pld_get_fw_files_for_target(struct device *dev,
 				u32 target_type, u32 target_version);
 int pld_prevent_l1(struct device *dev);
 void pld_allow_l1(struct device *dev);
+
+/**
+ * pld_set_pcie_gen_speed() - Set PCIE gen speed
+ * @dev: device
+ * @pcie_gen_speed: Required PCIE gen speed
+ *
+ * Send required PCIE Gen speed to platform driver
+ *
+ * Return: 0 for success. Negative error codes.
+ */
+int pld_set_pcie_gen_speed(struct device *dev, u8 pcie_gen_speed);
+
 void pld_is_pci_link_down(struct device *dev);
+void pld_get_bus_reg_dump(struct device *dev, uint8_t *buf, uint32_t len);
 int pld_shadow_control(struct device *dev, bool enable);
 void pld_schedule_recovery_work(struct device *dev,
 				enum pld_recovery_reason reason);
@@ -449,7 +486,7 @@ int pld_get_audio_wlan_timestamp(struct device *dev,
 				 uint64_t *ts);
 #endif /* FEATURE_WLAN_TIME_SYNC_FTM */
 
-#ifdef CONFIG_CNSS_UTILS
+#if IS_ENABLED(CONFIG_CNSS_UTILS)
 /**
  * pld_set_wlan_unsafe_channel() - Set unsafe channel
  * @dev: device
@@ -459,6 +496,21 @@ int pld_get_audio_wlan_timestamp(struct device *dev,
  * Return: 0 for success
  *         Non zero failure code for errors
  */
+#if defined(MULTI_CARD) && defined(PCIE_SSID)
+#define PLD_SET_WLAN_UNSAFE_CHANNEL(suffix) \
+static inline int pld_set_wlan_unsafe_channel(struct device *dev, \
+					      u16 *unsafe_ch_list, \
+					      u16 ch_count) \
+{ \
+	return cnss_utils_set_wlan_unsafe_channel_##suffix(dev, \
+							   unsafe_ch_list, \
+							   ch_count); \
+}
+
+#define PLD_SET_WLAN_UNSAFE_CHANNEL_DEFINE(pcie_ssid) PLD_SET_WLAN_UNSAFE_CHANNEL(pcie_ssid)
+
+PLD_SET_WLAN_UNSAFE_CHANNEL_DEFINE(PCIE_SSID)
+#else
 static inline int pld_set_wlan_unsafe_channel(struct device *dev,
 					      u16 *unsafe_ch_list,
 					      u16 ch_count)
@@ -466,6 +518,7 @@ static inline int pld_set_wlan_unsafe_channel(struct device *dev,
 	return cnss_utils_set_wlan_unsafe_channel(dev, unsafe_ch_list,
 						  ch_count);
 }
+#endif
 /**
  * pld_get_wlan_unsafe_channel() - Get unsafe channel
  * @dev: device
@@ -478,6 +531,21 @@ static inline int pld_set_wlan_unsafe_channel(struct device *dev,
  * Return: 0 for success
  *         Non zero failure code for errors
  */
+#if defined(MULTI_CARD) && defined(PCIE_SSID)
+#define PLD_GET_WLAN_UNSAFE_CHANNEL(suffix) \
+static inline int pld_get_wlan_unsafe_channel(struct device *dev, \
+					      u16 *unsafe_ch_list, \
+					      u16 *ch_count, u16 buf_len) \
+{ \
+	return cnss_utils_get_wlan_unsafe_channel_##suffix(dev, \
+							   unsafe_ch_list, \
+							   ch_count, buf_len); \
+}
+
+#define PLD_GET_WLAN_UNSAFE_CHANNEL_DEFINE(pcie_ssid) PLD_GET_WLAN_UNSAFE_CHANNEL(pcie_ssid)
+
+PLD_GET_WLAN_UNSAFE_CHANNEL_DEFINE(PCIE_SSID)
+#else
 static inline int pld_get_wlan_unsafe_channel(struct device *dev,
 					      u16 *unsafe_ch_list,
 					      u16 *ch_count, u16 buf_len)
@@ -485,6 +553,7 @@ static inline int pld_get_wlan_unsafe_channel(struct device *dev,
 	return cnss_utils_get_wlan_unsafe_channel(dev, unsafe_ch_list,
 						  ch_count, buf_len);
 }
+#endif
 /**
  * pld_wlan_set_dfs_nol() - Set DFS info
  * @dev: device
@@ -494,11 +563,24 @@ static inline int pld_get_wlan_unsafe_channel(struct device *dev,
  * Return: 0 for success
  *         Non zero failure code for errors
  */
+#if defined(MULTI_CARD) && defined(PCIE_SSID)
+#define PLD_WLAN_SET_DFS_NOL(suffix) \
+static inline int pld_wlan_set_dfs_nol(struct device *dev, void *info, \
+				       u16 info_len) \
+{ \
+	return cnss_utils_wlan_set_dfs_nol_##suffix(dev, info, info_len); \
+}
+
+#define PLD_WLAN_SET_DFS_NOL_DEFINE(pcie_ssid) PLD_WLAN_SET_DFS_NOL(pcie_ssid)
+
+PLD_WLAN_SET_DFS_NOL_DEFINE(PCIE_SSID)
+#else
 static inline int pld_wlan_set_dfs_nol(struct device *dev, void *info,
 				       u16 info_len)
 {
 	return cnss_utils_wlan_set_dfs_nol(dev, info, info_len);
 }
+#endif
 /**
  * pld_wlan_get_dfs_nol() - Get DFS info
  * @dev: device
@@ -510,11 +592,24 @@ static inline int pld_wlan_set_dfs_nol(struct device *dev, void *info,
  * Return: 0 for success
  *         Non zero failure code for errors
  */
+#if defined(MULTI_CARD) && defined(PCIE_SSID)
+#define PLD_WLAN_GET_DFS_NOL(suffix) \
+static inline int pld_wlan_get_dfs_nol(struct device *dev, \
+				       void *info, u16 info_len) \
+{ \
+	return cnss_utils_wlan_get_dfs_nol_##suffix(dev, info, info_len); \
+}
+
+#define PLD_WLAN_GET_DFS_NOL_DEFINE(pcie_ssid) PLD_WLAN_GET_DFS_NOL(pcie_ssid)
+
+PLD_WLAN_GET_DFS_NOL_DEFINE(PCIE_SSID)
+#else
 static inline int pld_wlan_get_dfs_nol(struct device *dev,
 				       void *info, u16 info_len)
 {
 	return cnss_utils_wlan_get_dfs_nol(dev, info, info_len);
 }
+#endif
 /**
  * pld_get_wlan_mac_address() - API to query MAC address from Platform
  * Driver
@@ -526,11 +621,24 @@ static inline int pld_wlan_get_dfs_nol(struct device *dev,
  *
  * Return: Pointer to the list of MAC address
  */
+#if defined(MULTI_CARD) && defined(PCIE_SSID)
+#define PLD_GET_WLAN_MAC_ADDRESS(suffix) \
+static inline uint8_t *pld_get_wlan_mac_address(struct device *dev, \
+						uint32_t *num) \
+{ \
+	return cnss_utils_get_wlan_mac_address_##suffix(dev, num); \
+}
+
+#define PLD_GET_WLAN_MAC_ADDRESS_DEFINE(pcie_ssid) PLD_GET_WLAN_MAC_ADDRESS(pcie_ssid)
+
+PLD_GET_WLAN_MAC_ADDRESS_DEFINE(PCIE_SSID)
+#else
 static inline uint8_t *pld_get_wlan_mac_address(struct device *dev,
 						uint32_t *num)
 {
 	return cnss_utils_get_wlan_mac_address(dev, num);
 }
+#endif
 
 /**
  * pld_get_wlan_derived_mac_address() - API to query derived MAC address
@@ -543,11 +651,24 @@ static inline uint8_t *pld_get_wlan_mac_address(struct device *dev,
  *
  * Return: Pointer to the list of MAC address
  */
+#if defined(MULTI_CARD) && defined(PCIE_SSID)
+#define PLD_GET_WLAN_DERIVED_MAC_ADDRESS(suffix) \
+static inline uint8_t *pld_get_wlan_derived_mac_address(struct device *dev, \
+							uint32_t *num) \
+{ \
+	return cnss_utils_get_wlan_derived_mac_address_##suffix(dev, num); \
+}
+
+#define PLD_GET_WLAN_DERIVED_MAC_ADDRESS_DEFINE(pcie_ssid) PLD_GET_WLAN_DERIVED_MAC_ADDRESS(pcie_ssid)
+
+PLD_GET_WLAN_DERIVED_MAC_ADDRESS_DEFINE(PCIE_SSID)
+#else
 static inline uint8_t *pld_get_wlan_derived_mac_address(struct device *dev,
 							uint32_t *num)
 {
 	return cnss_utils_get_wlan_derived_mac_address(dev, num);
 }
+#endif
 
 /**
  * pld_increment_driver_load_cnt() - Maintain driver load count
@@ -558,10 +679,22 @@ static inline uint8_t *pld_get_wlan_derived_mac_address(struct device *dev,
  *
  * Return: void
  */
+#if defined(MULTI_CARD) && defined(PCIE_SSID)
+#define PLD_INCREMENT_DRIVER_LOAD_CNT(suffix) \
+static inline void pld_increment_driver_load_cnt(struct device *dev) \
+{ \
+	cnss_utils_increment_driver_load_cnt_##suffix(dev); \
+}
+
+#define PLD_INCREMENT_DRIVER_LOAD_CNT_DEFINE(pcie_ssid) PLD_INCREMENT_DRIVER_LOAD_CNT(pcie_ssid)
+
+PLD_INCREMENT_DRIVER_LOAD_CNT_DEFINE(PCIE_SSID)
+#else
 static inline void pld_increment_driver_load_cnt(struct device *dev)
 {
 	cnss_utils_increment_driver_load_cnt(dev);
 }
+#endif
 /**
  * pld_get_driver_load_cnt() - get driver load count
  * @dev: device
@@ -570,22 +703,36 @@ static inline void pld_increment_driver_load_cnt(struct device *dev)
  *
  * Return: driver load count
  */
+#if defined(MULTI_CARD) && defined(PCIE_SSID)
+#define PLD_GET_DRIVER_LOAD_CNT(suffix) \
+static inline int pld_get_driver_load_cnt(struct device *dev) \
+{ \
+	return cnss_utils_get_driver_load_cnt_##suffix(dev); \
+}
+
+#define PLD_GET_DRIVER_LOAD_CNT_DEFINE(pcie_ssid) PLD_GET_DRIVER_LOAD_CNT(pcie_ssid)
+
+PLD_GET_DRIVER_LOAD_CNT_DEFINE(PCIE_SSID)
+#else
 static inline int pld_get_driver_load_cnt(struct device *dev)
 {
 	return cnss_utils_get_driver_load_cnt(dev);
 }
+#endif
 #else
 static inline int pld_set_wlan_unsafe_channel(struct device *dev,
 					      u16 *unsafe_ch_list,
 					      u16 ch_count)
 {
-	return -EINVAL;
+	return 0;
 }
 static inline int pld_get_wlan_unsafe_channel(struct device *dev,
 					      u16 *unsafe_ch_list,
 					      u16 *ch_count, u16 buf_len)
 {
-	return -EINVAL;
+	*ch_count = 0;
+
+	return 0;
 }
 static inline int pld_wlan_set_dfs_nol(struct device *dev,
 				       void *info, u16 info_len)
@@ -652,6 +799,15 @@ int pld_force_wake_request(struct device *dev);
  *         Non zero failure code for errors
  */
 int pld_force_wake_request_sync(struct device *dev, int timeout_us);
+
+/**
+ * pld_exit_power_save() - Send EXIT_POWER_SAVE QMI to FW
+ * @dev: device
+ *
+ * Return: 0 for success
+ *         Non zero failure code for errors
+ */
+int pld_exit_power_save(struct device *dev);
 int pld_is_device_awake(struct device *dev);
 int pld_force_wake_release(struct device *dev);
 int pld_ce_request_irq(struct device *dev, unsigned int ce_id,
@@ -701,7 +857,7 @@ unsigned int pld_socinfo_get_serial_number(struct device *dev);
 int pld_is_qmi_disable(struct device *dev);
 int pld_is_fw_down(struct device *dev);
 int pld_force_assert_target(struct device *dev);
-int pld_collect_rddm(struct device *dev);
+int pld_force_collect_target_dump(struct device *dev);
 int pld_qmi_send_get(struct device *dev);
 int pld_qmi_send_put(struct device *dev);
 int pld_qmi_send(struct device *dev, int type, void *cmd,
@@ -846,7 +1002,38 @@ int pld_pci_read_config_dword(struct pci_dev *pdev, int offset, uint32_t *val);
  *         Non zero failure code for errors
  */
 int pld_pci_write_config_dword(struct pci_dev *pdev, int offset, uint32_t val);
-#if defined(CONFIG_WCNSS_MEM_PRE_ALLOC) && defined(FEATURE_SKB_PRE_ALLOC)
+
+/**
+ * pld_thermal_register() - Register the thermal device with the thermal system
+ * @dev: The device structure
+ * @state: The max state to be configured on registration
+ * @mon_id: Thermal cooling device ID
+ *
+ * Return: Error code on error
+ */
+int pld_thermal_register(struct device *dev, unsigned long state, int mon_id);
+
+/**
+ * pld_thermal_unregister() - Unregister the device with the thermal system
+ * @dev: The device structure
+ * @mon_id: Thermal cooling device ID
+ *
+ * Return: None
+ */
+void pld_thermal_unregister(struct device *dev, int mon_id);
+
+/**
+ * pld_get_thermal_state() - Get the current thermal state from the PLD
+ * @dev: The device structure
+ * @thermal_state: param to store the current thermal state
+ * @mon_id: Thermal cooling device ID
+ *
+ * Return: Non-zero code for error; zero for success
+ */
+int pld_get_thermal_state(struct device *dev, unsigned long *thermal_state,
+			  int mon_id);
+
+#if IS_ENABLED(CONFIG_WCNSS_MEM_PRE_ALLOC) && defined(FEATURE_SKB_PRE_ALLOC)
 
 /**
  * pld_nbuf_pre_alloc() - get allocated nbuf from platform driver.

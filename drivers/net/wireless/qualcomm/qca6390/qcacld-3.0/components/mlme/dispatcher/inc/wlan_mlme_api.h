@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -116,6 +116,18 @@ uint8_t wlan_mlme_get_tx_power(struct wlan_objmgr_psoc *psoc,
  * Return: pointer to character array of power usage
  */
 char *wlan_mlme_get_power_usage(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * wlan_mlme_get_enable_deauth_to_disassoc_map() - Get the deauth to disassoc
+ * map
+ * @psoc: pointer to psoc object
+ * @value: pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_enable_deauth_to_disassoc_map(struct wlan_objmgr_psoc *psoc,
+					    bool *value);
 
 /**
  * wlan_mlme_get_ht_cap_info() - Get the HT cap info config
@@ -257,7 +269,7 @@ QDF_STATUS wlan_mlme_set_ht_mpdu_density(struct wlan_objmgr_psoc *psoc,
  * Return: QDF Status
  */
 QDF_STATUS wlan_mlme_get_band_capability(struct wlan_objmgr_psoc *psoc,
-					 uint8_t *band_capability);
+					 uint32_t *band_capability);
 
 /**
  * wlan_mlme_set_band_capability() - Set the Band capability config
@@ -267,7 +279,7 @@ QDF_STATUS wlan_mlme_get_band_capability(struct wlan_objmgr_psoc *psoc,
  * Return: QDF Status
  */
 QDF_STATUS wlan_mlme_set_band_capability(struct wlan_objmgr_psoc *psoc,
-					 uint8_t band_capability);
+					 uint32_t band_capability);
 
 /**
  * wlan_mlme_get_prevent_link_down() - Get the prevent link down config
@@ -318,6 +330,17 @@ QDF_STATUS wlan_mlme_get_crash_inject(struct wlan_objmgr_psoc *psoc,
  */
 QDF_STATUS wlan_mlme_get_lpass_support(struct wlan_objmgr_psoc *psoc,
 				       bool *lpass_support);
+
+/**
+ * wlan_mlme_get_wls_6ghz_cap() - Get the wifi location service(WLS)
+ * 6ghz capability
+ * @psoc: pointer to psoc object
+ * @wls_6ghz_capable: Pointer to the variable from caller
+ *
+ * Return: void
+ */
+void wlan_mlme_get_wls_6ghz_cap(struct wlan_objmgr_psoc *psoc,
+				bool *wls_6ghz_capable);
 
 /**
  * wlan_mlme_get_self_recovery() - Get the self recovery config
@@ -495,6 +518,15 @@ QDF_STATUS wlan_mlme_configure_chain_mask(struct wlan_objmgr_psoc *psoc,
 					  uint8_t session_id);
 
 /**
+ * wlan_mlme_is_chain_mask_supported() - check if configure chainmask can
+ * be supported
+ * @psoc: pointer to psoc object
+ *
+ * Return: true if supported else false
+ */
+bool wlan_mlme_is_chain_mask_supported(struct wlan_objmgr_psoc *psoc);
+
+/**
  * wlan_mlme_get_listen_interval() - Get listen interval
  * @psoc: pointer to psoc object
  * @value: Pointer to value that needs to be filled by MLME
@@ -525,14 +557,14 @@ QDF_STATUS wlan_mlme_set_assoc_sta_limit(struct wlan_objmgr_psoc *psoc,
 					 int value);
 
 /**
- * wlan_mlme_set_rmc_action_period_freq() - Set the rmc action period frequency
+ * wlan_mlme_get_assoc_sta_limit() - Get the assoc sta limit
  * @psoc: pointer to psoc object
- * @value: Value that needs to be set from the caller
+ * @value: Pointer to value that needs to be filled by MLME
  *
  * Return: QDF Status
  */
-QDF_STATUS wlan_mlme_set_rmc_action_period_freq(struct wlan_objmgr_psoc *psoc,
-						int value);
+QDF_STATUS wlan_mlme_get_assoc_sta_limit(struct wlan_objmgr_psoc *psoc,
+					 int *value);
 
 /**
  * wlan_mlme_set_sap_get_peer_info() - get the sap get peer info
@@ -795,6 +827,26 @@ QDF_STATUS wlan_mlme_get_oce_sta_enabled_info(struct wlan_objmgr_psoc *psoc,
 					      bool *value);
 
 /**
+ * wlan_mlme_get_bigtk_support() - Get the BIGTK support
+ * @psoc: pointer to psoc object
+ * @value: pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS wlan_mlme_get_bigtk_support(struct wlan_objmgr_psoc *psoc,
+				       bool *value);
+
+/**
+ * wlan_mlme_get_ocv_support() - Get the OCV support
+ * @psoc: pointer to psoc object
+ * @value: pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS wlan_mlme_get_ocv_support(struct wlan_objmgr_psoc *psoc,
+				     bool *value);
+
+/**
  * wlan_mlme_get_host_scan_abort_support() - Get support for stop all host
  * scans service capability.
  * @psoc: PSOC object pointer
@@ -802,6 +854,15 @@ QDF_STATUS wlan_mlme_get_oce_sta_enabled_info(struct wlan_objmgr_psoc *psoc,
  * Return: True if capability is supported, else False
  */
 bool wlan_mlme_get_host_scan_abort_support(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * wlan_mlme_get_dual_sta_roam_support  - Get support for dual sta roaming
+ * feature
+ * @psoc: PSOC object pointer
+ *
+ * Return: True if capability is supported, else False
+ */
+bool wlan_mlme_get_dual_sta_roam_support(struct wlan_objmgr_psoc *psoc);
 
 /**
  * wlan_mlme_get_oce_sap_enabled_info() - Get the OCE feature enable
@@ -1419,6 +1480,16 @@ wlan_mlme_cfg_set_vht_max_mpdu_len(struct wlan_objmgr_psoc *psoc,
 				   uint8_t value);
 
 /**
+ * wlan_mlme_cfg_get_ht_smps() - gets HT SM Power Save mode from cfg item
+ * @psoc: psoc context
+ * @value: data to be set
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS wlan_mlme_cfg_get_ht_smps(struct wlan_objmgr_psoc *psoc,
+				     uint8_t *value);
+
+/**
  * wlan_mlme_cfg_get_vht_chan_width() - gets vht supported channel width from
  * cfg item
  * @psoc: psoc context
@@ -1917,15 +1988,30 @@ wlan_mlme_get_srd_master_mode_for_vdev(struct wlan_objmgr_psoc *psoc,
 				       bool *value);
 
 /**
- * wlan_mlme_get_indoor_support_for_nan  - Get indoor channel support for NAN
- * @psoc: pointer to psoc object
- * @value: pointer to the value which will be filled for the caller
+ * wlan_mlme_get_force_sap_enabled() - Get the value of force SAP enabled
+ * @psoc: psoc context
+ * @value: data to get
  *
- * Return: QDF Status
+ * Get the value of force SAP enabled
+ *
+ * Return: QDF_STATUS_SUCCESS or QDF_STATUS_FAILURE
  */
 QDF_STATUS
-wlan_mlme_get_indoor_support_for_nan(struct wlan_objmgr_psoc *psoc,
-				     bool *value);
+wlan_mlme_get_force_sap_enabled(struct wlan_objmgr_psoc *psoc, bool *value);
+
+/**
+ * wlan_mlme_get_enable_dynamic_nss_chains_cfg() - API to get whether dynamic
+ * nss and chain config is enabled or not
+ * @psoc: psoc context
+ * @value: data to be set
+ *
+ * API to get whether dynamic nss and chain config is enabled or not
+ *
+ * Return: QDF_STATUS_SUCCESS or QDF_STATUS_FAILURE
+ */
+QDF_STATUS
+wlan_mlme_get_enable_dynamic_nss_chains_cfg(struct wlan_objmgr_psoc *psoc,
+					    bool *value);
 
 /**
  * wlan_mlme_get_vht_enable2x2() - Enables/disables VHT Tx/Rx MCS values for 2x2
@@ -2061,16 +2147,6 @@ wlan_mlme_set_11h_enabled(struct wlan_objmgr_psoc *psoc, bool value);
  */
 QDF_STATUS
 wlan_mlme_is_11d_enabled(struct wlan_objmgr_psoc *psoc, bool *value);
-
-/**
- * wlan_mlme_ibss_power_save_setup() - Set IBSS power save params
- * @psoc: pointer to psoc object
- * @vdev_id: IBSS Vdev ID
- *
- * Return: QDF Status
- */
-QDF_STATUS wlan_mlme_ibss_power_save_setup(struct wlan_objmgr_psoc *psoc,
-					   uint32_t vdev_id);
 
 /**
  * wlan_mlme_set_11d_enabled() - Set the 11h flag
@@ -2221,7 +2297,6 @@ QDF_STATUS wlan_mlme_is_bmps_enabled(struct wlan_objmgr_psoc *psoc,
 /**
  * wlan_mlme_override_bmps_imps() - disable imps/bmps
  * @psoc: pointer to psoc object
- * @value: value that is requested by the caller
  *
  * Return: QDF_STATUS_SUCCESS - in case of success
  */
@@ -2324,6 +2399,24 @@ wlan_mlme_get_ignore_fw_reg_offload_ind(struct wlan_objmgr_psoc *psoc,
  *  Return: Meaningful string from enum WMI_ROAM_TRIGGER_REASON_ID
  */
 char *mlme_get_roam_trigger_str(uint32_t roam_scan_trigger);
+
+/**
+ * mlme_get_roam_scan_type_str() - Get the string for roam sacn type
+ * @roam_scan_type: roam scan type coming from fw via
+ * wmi_roam_scan_info tlv
+ *
+ *  Return: Meaningful string for roam sacn type
+ */
+char *mlme_get_roam_scan_type_str(uint32_t roam_scan_type);
+
+/**
+ * mlme_get_roam_status_str() - Get the string for roam status
+ * @roam_status: roam status coming from fw via
+ * wmi_roam_scan_info tlv
+ *
+ *  Return: Meaningful string for roam status
+ */
+char *mlme_get_roam_status_str(uint32_t roam_status);
 
 /**
  * mlme_get_converted_timestamp() - Return time of the day
@@ -2455,6 +2548,167 @@ wlan_mlme_get_status_ring_buffer(struct wlan_objmgr_psoc *psoc,
  */
 bool wlan_mlme_get_peer_unmap_conf(struct wlan_objmgr_psoc *psoc);
 
+#ifdef WLAN_FEATURE_ROAM_OFFLOAD
+/**
+ * wlan_mlme_get_roam_reason_vsie_status() - Indicate if roam reason
+ * vsie is enabled or disabled
+ * @psoc: pointer to psoc object
+ * @roam_reason_vsie_enabled: pointer to hold value of roam reason
+ * vsie
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+wlan_mlme_get_roam_reason_vsie_status(struct wlan_objmgr_psoc *psoc,
+				      uint8_t *roam_reason_vsie_enabled);
+
+/**
+ * wlan_mlme_set_roam_reason_vsie_status() - Update roam reason vsie status
+ * @psoc: pointer to psoc object
+ * @roam_reason_vsie_enabled: value of roam reason vsie
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+wlan_mlme_set_roam_reason_vsie_status(struct wlan_objmgr_psoc *psoc,
+				      uint8_t roam_reason_vsie_enabled);
+
+/**
+ * wlan_mlme_get_roaming_triggers  - Get the roaming triggers bitmap
+ * @psoc: Pointer to PSOC object
+ *
+ * Return: Roaming triggers value
+ */
+uint32_t wlan_mlme_get_roaming_triggers(struct wlan_objmgr_psoc *psoc);
+
+/**
+ * wlan_mlme_get_roaming_offload() - Get roaming offload setting
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to enable/disable roaming offload
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_roaming_offload(struct wlan_objmgr_psoc *psoc,
+			      bool *val);
+
+/**
+ * wlan_mlme_get_enable_disconnect_roam_offload() - Get emergency roaming
+ * Enable/Disable status during deauth/disassoc
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to emergency roaming Enable/Disable status
+ *        during deauth/disassoc
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_enable_disconnect_roam_offload(struct wlan_objmgr_psoc *psoc,
+					     bool *val);
+
+/**
+ * wlan_mlme_get_enable_idle_roam() - Get Enable/Disable idle roaming status
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to Enable/Disable idle roaming status
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_enable_idle_roam(struct wlan_objmgr_psoc *psoc, bool *val);
+
+/**
+ * wlan_mlme_get_idle_roam_rssi_delta() - Get idle roam rssi delta
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to idle roam rssi delta
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_idle_roam_rssi_delta(struct wlan_objmgr_psoc *psoc,
+				   uint32_t *val);
+
+/**
+ * wlan_mlme_get_idle_roam_inactive_time() - Get idle roam inactive time
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to idle roam inactive time
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_idle_roam_inactive_time(struct wlan_objmgr_psoc *psoc,
+				      uint32_t *val);
+/**
+ * wlan_mlme_get_idle_data_packet_count() - Get idle data packet count
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to idle data packet count
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_idle_data_packet_count(struct wlan_objmgr_psoc *psoc,
+				     uint32_t *val);
+
+/**
+ * wlan_mlme_get_idle_roam_min_rssi() - Get idle roam min rssi
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to idle roam min rssi
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_idle_roam_min_rssi(struct wlan_objmgr_psoc *psoc, uint32_t *val);
+
+/**
+ * wlan_mlme_get_idle_roam_band() - Get idle roam band
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to idle roam band
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_idle_roam_band(struct wlan_objmgr_psoc *psoc, uint32_t *val);
+#else
+static inline QDF_STATUS
+wlan_mlme_get_roam_reason_vsie_status(struct wlan_objmgr_psoc *psoc,
+				      uint8_t *roam_reason_vsie_enable)
+{
+	return QDF_STATUS_E_FAILURE;
+}
+
+static inline QDF_STATUS
+wlan_mlme_set_roam_reason_vsie_status(struct wlan_objmgr_psoc *psoc,
+				      uint8_t roam_reason_vsie_enable)
+{
+	return QDF_STATUS_E_FAILURE;
+}
+
+static inline
+uint32_t wlan_mlme_get_roaming_triggers(struct wlan_objmgr_psoc *psoc)
+{
+	return 0xFFFF;
+}
+
+static inline QDF_STATUS
+wlan_mlme_get_roaming_offload(struct wlan_objmgr_psoc *psoc,
+			      bool *val)
+{
+	*val = false;
+
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
+/**
+ * wlan_mlme_get_dfs_chan_ageout_time() - Get the DFS Channel ageout time
+ * @psoc: pointer to psoc object
+ * @dfs_chan_ageout_time: output pointer to hold configured value of DFS
+ * Channel ageout time
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_dfs_chan_ageout_time(struct wlan_objmgr_psoc *psoc,
+				   uint8_t *dfs_chan_ageout_time);
+
 #ifdef WLAN_FEATURE_SAE
 /**
  * wlan_mlme_get_sae_assoc_retry_count() - Get the sae assoc retry count
@@ -2516,56 +2770,388 @@ wlan_mlme_get_sae_roam_auth_retry_count(struct wlan_objmgr_psoc *psoc,
 
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 /**
- * wlan_mlme_get_roam_reason_vsie_status() - Indicate if roam reason
- * vsie is enabled or disabled
- * @psoc: pointer to psoc object
- * @roam_reason_vsie_enabled: pointer to hold value of roam reason
- * vsie
+ * wlan_mlme_get_dual_sta_roaming_enabled  - API to get if the dual sta
+ * roaming support is enabled.
+ * @psoc: Pointer to global psoc object
  *
- * Return: QDF_STATUS
+ * Return: True if dual sta roaming feature is enabled else return false
  */
-QDF_STATUS
-wlan_mlme_get_roam_reason_vsie_status(struct wlan_objmgr_psoc *psoc,
-				      uint8_t *roam_reason_vsie_enabled);
-
-/**
- * wlan_mlme_set_roam_reason_vsie_status() - Update roam reason vsie status
- * @psoc: pointer to psoc object
- * @roam_reason_vsie_enabled: value of roam reason vsie
- *
- * Return: QDF_STATUS
- */
-QDF_STATUS
-wlan_mlme_set_roam_reason_vsie_status(struct wlan_objmgr_psoc *psoc,
-				      uint8_t roam_reason_vsie_enabled);
-
-/**
- * wlan_mlme_get_roaming_triggers  - Get the roaming triggers bitmap
- * @psoc: Pointer to PSOC object
- *
- * Return: Roaming triggers value
- */
-uint32_t wlan_mlme_get_roaming_triggers(struct wlan_objmgr_psoc *psoc);
+bool
+wlan_mlme_get_dual_sta_roaming_enabled(struct wlan_objmgr_psoc *psoc);
 #else
-static inline QDF_STATUS
-wlan_mlme_get_roam_reason_vsie_status(struct wlan_objmgr_psoc *psoc,
-				      uint8_t *roam_reason_vsie_enable)
+static inline bool
+wlan_mlme_get_dual_sta_roaming_enabled(struct wlan_objmgr_psoc *psoc)
 {
-	return QDF_STATUS_E_FAILURE;
-}
-
-static inline QDF_STATUS
-wlan_mlme_set_roam_reason_vsie_status(struct wlan_objmgr_psoc *psoc,
-				      uint8_t roam_reason_vsie_enable)
-{
-	return QDF_STATUS_E_FAILURE;
-}
-
-static inline
-uint32_t wlan_mlme_get_roaming_triggers(struct wlan_objmgr_psoc *psoc)
-{
-	return 0xFFFF;
+	return false;
 }
 #endif
 
+/**
+ * mlme_store_fw_scan_channels - Update the valid channel list to mlme.
+ * @psoc: Pointer to global psoc object
+ * @chan_list: Source channel list pointer
+ *
+ * Currently the channel list is saved to wma_handle to be updated in the
+ * PCL command. This cannot be accesed at target_if while sending vdev
+ * set pcl command. So save the channel list to mlme.
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+mlme_store_fw_scan_channels(struct wlan_objmgr_psoc *psoc,
+			    tSirUpdateChanList *chan_list);
+
+/**
+ * mlme_get_fw_scan_channels  - Copy the saved valid channel
+ * list to the provided buffer
+ * @psoc: Pointer to global psoc object
+ * @freq_list: Pointer to the frequency list buffer to be filled
+ * @saved_num_chan: Number of channels filled
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS mlme_get_fw_scan_channels(struct wlan_objmgr_psoc *psoc,
+				     uint32_t *freq_list,
+				     uint8_t *saved_num_chan);
+/**
+ * wlan_mlme_get_roam_scan_offload_enabled() - Roam scan offload enable or not
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_roam_scan_offload_enabled(struct wlan_objmgr_psoc *psoc,
+					bool *val);
+
+/**
+ * wlan_mlme_get_roam_bmiss_final_bcnt() - Get roam bmiss final count
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_roam_bmiss_final_bcnt(struct wlan_objmgr_psoc *psoc,
+				    uint8_t *val);
+
+/**
+ * wlan_mlme_get_roam_bmiss_first_bcnt() - Get roam bmiss first count
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_roam_bmiss_first_bcnt(struct wlan_objmgr_psoc *psoc,
+				    uint8_t *val);
+
+/**
+ * wlan_mlme_adaptive_11r_enabled() - check if adaptive 11r feature is enaled
+ * or not
+ * @psoc: pointer to psoc object
+ *
+ * Return: bool
+ */
+#ifdef WLAN_ADAPTIVE_11R
+bool wlan_mlme_adaptive_11r_enabled(struct wlan_objmgr_psoc *psoc);
+#else
+static inline bool wlan_mlme_adaptive_11r_enabled(struct wlan_objmgr_psoc *psoc)
+{
+	return false;
+}
+#endif
+
+/**
+ * wlan_mlme_get_mawc_enabled() - Get mawc enabled status
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_mawc_enabled(struct wlan_objmgr_psoc *psoc, bool *val);
+
+/**
+ * wlan_mlme_get_mawc_roam_enabled() - Get mawc roam enabled status
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_mawc_roam_enabled(struct wlan_objmgr_psoc *psoc, bool *val);
+
+/**
+ * wlan_mlme_get_mawc_roam_traffic_threshold() - Get mawc traffic threshold
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_mawc_roam_traffic_threshold(struct wlan_objmgr_psoc *psoc,
+					  uint32_t *val);
+
+/**
+ * wlan_mlme_get_mawc_roam_ap_rssi_threshold() - Get AP RSSI threshold for
+ * MAWC roaming
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_mawc_roam_ap_rssi_threshold(struct wlan_objmgr_psoc *psoc,
+					  uint32_t *val);
+
+/**
+ * wlan_mlme_get_mawc_roam_rssi_high_adjust() - Get high adjustment value
+ * for suppressing scan
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_mawc_roam_rssi_high_adjust(struct wlan_objmgr_psoc *psoc,
+					 uint8_t *val);
+
+/**
+ * wlan_mlme_get_mawc_roam_rssi_low_adjust() - Get low adjustment value
+ * for suppressing scan
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_mawc_roam_rssi_low_adjust(struct wlan_objmgr_psoc *psoc,
+					uint8_t *val);
+
+/**
+ * wlan_mlme_get_bss_load_enabled() - Get bss load based roam trigger
+ * enabled status
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_bss_load_enabled(struct wlan_objmgr_psoc *psoc, bool *val);
+
+/**
+ * wlan_mlme_get_bss_load_threshold() - Get bss load threshold
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_bss_load_threshold(struct wlan_objmgr_psoc *psoc, uint32_t *val);
+
+/**
+ * wlan_mlme_get_bss_load_sample_time() - Get bss load sample time
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_bss_load_sample_time(struct wlan_objmgr_psoc *psoc,
+				   uint32_t *val);
+
+/**
+ * wlan_mlme_get_bss_load_rssi_threshold_5ghz() - Get bss load RSSI
+ * threshold on 5G
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_bss_load_rssi_threshold_5ghz(struct wlan_objmgr_psoc *psoc,
+					   int32_t *val);
+
+/**
+ * wlan_mlme_get_bss_load_rssi_threshold_24ghz() - Get bss load RSSI
+ * threshold on 2.4G
+ * @psoc: pointer to psoc object
+ * @val:  Pointer to the value which will be filled for the caller
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS
+wlan_mlme_get_bss_load_rssi_threshold_24ghz(struct wlan_objmgr_psoc *psoc,
+					    int32_t *val);
+/**
+ * wlan_mlme_check_chan_param_has_dfs() - Get dfs flag based on
+ * channel & channel parameters
+ * @pdev: pdev object
+ * @ch_params: channel parameters
+ * @chan_freq: channel frequency in MHz
+ *
+ * Return: True for dfs
+ */
+bool
+wlan_mlme_check_chan_param_has_dfs(struct wlan_objmgr_pdev *pdev,
+				   struct ch_params *ch_params,
+				   uint32_t chan_freq);
+
+/**
+ * wlan_mlme_set_usr_disabled_roaming() - Set user config for roaming disable
+ * @psoc: pointer to psoc object
+ * @val: user config for roaming disable
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+wlan_mlme_set_usr_disabled_roaming(struct wlan_objmgr_psoc *psoc, bool val);
+
+/**
+ * wlan_mlme_get_usr_disabled_roaming() - Get user config for roaming disable
+ * @psoc: pointer to psoc object
+ * @val: user config for roaming disable
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+wlan_mlme_get_usr_disabled_roaming(struct wlan_objmgr_psoc *psoc, bool *val);
+
+/**
+ * mlme_get_opr_rate() - get operational rate
+ * @vdev: vdev pointer
+ * @dst: pointer to get operational rate
+ * @len: length of operational rate
+ *
+ * Return: QDF_SUCCESS if success
+ */
+QDF_STATUS mlme_get_opr_rate(struct wlan_objmgr_vdev *vdev, uint8_t *dst,
+			     qdf_size_t *len);
+
+/**
+ * mlme_set_opr_rate() - set operational rate
+ * @vdev: vdev pointer
+ * @src: pointer to set operational rate
+ * @len: length of operational rate
+ *
+ * Return: QDF_SUCCESS if success
+ */
+QDF_STATUS mlme_set_opr_rate(struct wlan_objmgr_vdev *vdev, uint8_t *src,
+			     qdf_size_t len);
+
+/**
+ * mlme_get_ext_opr_rate() - get extended operational rate
+ * @vdev: vdev pointer
+ * @dst: pointer to get extended operational rate
+ * @len: length of extended operational rate
+ *
+ * Return: QDF_SUCCESS if success
+ */
+QDF_STATUS mlme_get_ext_opr_rate(struct wlan_objmgr_vdev *vdev, uint8_t *dst,
+				 qdf_size_t *len);
+
+/**
+ * mlme_set_ext_opr_rate() - set extended operational rate
+ * @vdev: vdev pointer
+ * @src: pointer to set extended operational rate
+ * @len: length of extended operational rate
+ *
+ * Return: QDF_SUCCESS if success
+ */
+QDF_STATUS mlme_set_ext_opr_rate(struct wlan_objmgr_vdev *vdev, uint8_t *src,
+				 qdf_size_t len);
+
+/**
+ * wlan_mlme_is_sta_mon_conc_supported() - Check if STA + Monitor mode
+ * concurrency is supported
+ * @psoc: pointer to psoc object
+ *
+ * Return: True if supported
+ */
+bool wlan_mlme_is_sta_mon_conc_supported(struct wlan_objmgr_psoc *psoc);
+
+#ifdef FEATURE_WDS
+/**
+ * wlan_mlme_get_wds_mode() - Check wds mode supported
+ * @psoc: pointer to psoc object
+ *
+ * Return: supprted wds mode
+ */
+enum wlan_wds_mode
+wlan_mlme_get_wds_mode(struct wlan_objmgr_psoc *psoc);
+#else
+static inline enum wlan_wds_mode
+wlan_mlme_get_wds_mode(struct wlan_objmgr_psoc *psoc)
+{
+	return WLAN_WDS_MODE_DISABLED;
+}
+#endif
+
+#ifdef WLAN_SUPPORT_TWT
+/**
+ * mlme_is_twt_enabled() - Get if TWT is enabled via ini.
+ * @psoc: pointer to psoc object
+ * @val: pointer to the value to be filled
+ *
+ * Return: True if TWT is enabled else false.
+ */
+bool
+mlme_is_twt_enabled(struct wlan_objmgr_psoc *psoc);
+#else
+static inline bool
+mlme_is_twt_enabled(struct wlan_objmgr_psoc *psoc)
+{
+	return false;
+}
+#endif /* WLAN_SUPPORT_TWT */
+
+/**
+ * mlme_get_vht_ch_width() - get vht channel width of fw capability
+ *
+ * Return: vht channel width
+ */
+enum phy_ch_width mlme_get_vht_ch_width(void);
+
+/**
+ * mlme_get_max_he_mcs_idx() -  get max mcs index from he cap information
+ * @mcs_ch_width: channel width
+ * @hecap_rxmcsnssmap: rx mcs map from he cap
+ * @hecap_txmcsnssmap: tx mcs map from he cap
+ *
+ * Return: the maximum MCS supported
+ */
+uint8_t mlme_get_max_he_mcs_idx(enum phy_ch_width mcs_ch_width,
+				u_int16_t *hecap_rxmcsnssmap,
+				u_int16_t *hecap_txmcsnssmap);
+
+/**
+ * mlme_get_max_vht_mcs_idx() -  get max mcs index from vht cap information
+ * @rx_vht_mcs_map: rx mcs map from vht cap
+ * @tx_vht_mcs_map: tx mcs map from vht cap
+ *
+ * Return: the maximum MCS supported
+ */
+uint8_t mlme_get_max_vht_mcs_idx(u_int16_t rx_vht_mcs_map,
+				 u_int16_t tx_vht_mcs_map);
+
+#ifdef WLAN_FEATURE_SON
+/**
+ * mlme_set_vdev_max_mcs_idx() - Save max mcs index of vdev
+ * @vdev: pointer to vdev object
+ * @max_mcs_idx: max_mcs_idx to save
+ *
+ * Return: QDF Status
+ */
+QDF_STATUS mlme_save_vdev_max_mcs_idx(struct wlan_objmgr_vdev *vdev,
+				      uint8_t max_mcs_idx);
+
+/**
+ * mlme_get_vdev_max_mcs_idx() - Get max mcs index of vdev
+ * @vdev: pointer to vdev object
+ *
+ * Return max mcs index of vdev
+ */
+uint8_t mlme_get_vdev_max_mcs_idx(struct wlan_objmgr_vdev *vdev);
+#endif /* WLAN_FEATURE_SON */
 #endif /* _WLAN_MLME_API_H_ */

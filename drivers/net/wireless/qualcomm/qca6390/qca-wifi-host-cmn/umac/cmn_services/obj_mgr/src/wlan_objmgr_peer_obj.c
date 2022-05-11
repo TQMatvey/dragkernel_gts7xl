@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2021-2022 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -24,6 +25,7 @@
 #include <wlan_objmgr_pdev_obj.h>
 #include <wlan_objmgr_vdev_obj.h>
 #include <wlan_objmgr_peer_obj.h>
+#include <wlan_objmgr_debug.h>
 #include <qdf_mem.h>
 #include <qdf_module.h>
 #include "wlan_objmgr_global_obj_i.h"
@@ -73,6 +75,7 @@ static QDF_STATUS wlan_objmgr_peer_obj_free(struct wlan_objmgr_peer *peer)
 	struct wlan_objmgr_vdev *vdev;
 	uint8_t *macaddr;
 	uint8_t vdev_id;
+	bool peer_free_notify = true;
 
 	if (!peer) {
 		obj_mgr_err("PEER is NULL");
@@ -88,6 +91,12 @@ static QDF_STATUS wlan_objmgr_peer_obj_free(struct wlan_objmgr_peer *peer)
 				QDF_MAC_ADDR_REF(macaddr));
 		return QDF_STATUS_E_FAILURE;
 	}
+
+	/* Notify peer free only for non self peer*/
+	if (WLAN_ADDR_EQ(wlan_peer_get_macaddr(peer),
+			 wlan_vdev_mlme_get_macaddr(vdev)) ==
+				QDF_STATUS_SUCCESS)
+		peer_free_notify = false;
 
 	vdev_id = wlan_vdev_get_id(vdev);
 
@@ -130,7 +139,9 @@ static QDF_STATUS wlan_objmgr_peer_obj_free(struct wlan_objmgr_peer *peer)
 	qdf_spinlock_destroy(&peer->peer_lock);
 	qdf_mem_free(peer);
 
-	wlan_objmgr_vdev_peer_freed_notify(vdev);
+	if (peer_free_notify)
+		wlan_objmgr_vdev_peer_freed_notify(vdev);
+
 	wlan_objmgr_vdev_release_ref(vdev, WLAN_OBJMGR_ID);
 
 	return QDF_STATUS_SUCCESS;
@@ -186,6 +197,7 @@ struct wlan_objmgr_peer *wlan_objmgr_peer_obj_create(
 	peer->obj_state = WLAN_OBJ_STATE_ALLOCATED;
 	qdf_atomic_init(&peer->peer_objmgr.ref_cnt);
 	wlan_objmgr_peer_init_ref_id_debug(peer);
+	wlan_objmgr_peer_trace_init_lock(peer);
 	wlan_objmgr_peer_get_ref(peer, WLAN_OBJMGR_ID);
 	/* set vdev to peer */
 	wlan_peer_set_vdev(peer, vdev);
@@ -199,7 +211,6 @@ struct wlan_objmgr_peer *wlan_objmgr_peer_obj_create(
 	peer->peer_objmgr.print_cnt = 0;
 
 	qdf_spinlock_create(&peer->peer_lock);
-	wlan_objmgr_peer_trace_init_lock(peer);
 	/* Attach peer to psoc, psoc maintains the node table for the device */
 	if (wlan_objmgr_psoc_peer_attach(psoc, peer) !=
 					QDF_STATUS_SUCCESS) {
@@ -417,6 +428,8 @@ QDF_STATUS wlan_objmgr_peer_component_obj_attach(
 	return QDF_STATUS_SUCCESS;
 }
 
+qdf_export_symbol(wlan_objmgr_peer_component_obj_attach);
+
 QDF_STATUS wlan_objmgr_peer_component_obj_detach(
 		struct wlan_objmgr_peer *peer,
 		enum wlan_umac_comp_id id,
@@ -481,6 +494,7 @@ QDF_STATUS wlan_objmgr_peer_component_obj_detach(
 	return QDF_STATUS_SUCCESS;
 }
 
+qdf_export_symbol(wlan_objmgr_peer_component_obj_detach);
 
 QDF_STATUS wlan_objmgr_trigger_peer_comp_priv_object_creation(
 		struct wlan_objmgr_peer *peer,

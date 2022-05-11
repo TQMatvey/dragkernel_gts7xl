@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -21,19 +21,34 @@
 #include <qdf_types.h>
 #include <qdf_nbuf.h>
 #include "dp_types.h"
+#ifdef FEATURE_PERPKT_INFO
+#if defined(QCA_SUPPORT_LATENCY_CAPTURE) || \
+	defined(QCA_TX_CAPTURE_SUPPORT) || \
+	defined(QCA_MCOPY_SUPPORT)
+#include "if_meta_hdr.h"
+#endif
+#endif
+#include "dp_internal.h"
 
+#define DP_INVALID_VDEV_ID 0xFF
 
 #define DP_TX_MAX_NUM_FRAGS 6
 
-#define DP_TX_DESC_FLAG_ALLOCATED	0x1
+/*
+ * DP_TX_DESC_FLAG_FRAG flags should always be defined to 0x1
+ * please do not change this flag's definition
+ */
+#define DP_TX_DESC_FLAG_FRAG		0x1
 #define DP_TX_DESC_FLAG_TO_FW		0x2
-#define DP_TX_DESC_FLAG_FRAG		0x4
+#define DP_TX_DESC_FLAG_SIMPLE		0x4
 #define DP_TX_DESC_FLAG_RAW		0x8
 #define DP_TX_DESC_FLAG_MESH		0x10
 #define DP_TX_DESC_FLAG_QUEUED_TX	0x20
 #define DP_TX_DESC_FLAG_COMPLETED_TX	0x40
 #define DP_TX_DESC_FLAG_ME		0x80
 #define DP_TX_DESC_FLAG_TDLS_FRAME	0x100
+#define DP_TX_DESC_FLAG_ALLOCATED	0x200
+#define DP_TX_DESC_FLAG_MESH_MODE	0x400
 
 #define DP_TX_EXT_DESC_FLAG_METADATA_VALID 0x1
 
@@ -59,8 +74,25 @@ do {                                                           \
 	#endif /* TX_PER_VDEV_DESC_POOL */
 #endif /* TX_PER_PDEV_DESC_POOL */
 #define DP_TX_QUEUE_MASK 0x3
+
+/* number of dwords for htt_tx_msdu_desc_ext2_t */
 #define DP_TX_MSDU_INFO_META_DATA_DWORDS 7
 
+#define dp_tx_alert(params...) QDF_TRACE_FATAL(QDF_MODULE_ID_DP_TX, params)
+#define dp_tx_err(params...) QDF_TRACE_ERROR(QDF_MODULE_ID_DP_TX, params)
+#define dp_tx_warn(params...) QDF_TRACE_WARN(QDF_MODULE_ID_DP_TX, params)
+#define dp_tx_info(params...) \
+	__QDF_TRACE_FL(QDF_TRACE_LEVEL_INFO_HIGH, QDF_MODULE_ID_DP_TX, ## params)
+#define dp_tx_debug(params...) QDF_TRACE_DEBUG(QDF_MODULE_ID_DP_TX, params)
+
+#define dp_tx_comp_alert(params...) QDF_TRACE_FATAL(QDF_MODULE_ID_DP_TX_COMP, params)
+#define dp_tx_comp_err(params...) QDF_TRACE_ERROR(QDF_MODULE_ID_DP_TX_COMP, params)
+#define dp_tx_comp_warn(params...) QDF_TRACE_WARN(QDF_MODULE_ID_DP_TX_COMP, params)
+#define dp_tx_comp_info(params...) \
+	__QDF_TRACE_FL(QDF_TRACE_LEVEL_INFO_HIGH, QDF_MODULE_ID_DP_TX_COMP, ## params)
+#define dp_tx_comp_debug(params...) QDF_TRACE_DEBUG(QDF_MODULE_ID_DP_TX_COMP, params)
+
+#ifndef QCA_HOST_MODE_WIFI_DISABLED
 
 /**
  * struct dp_tx_frag_info_s
@@ -91,6 +123,8 @@ struct dp_tx_seg_info_s  {
 	struct dp_tx_frag_info_s frags[DP_TX_MAX_NUM_FRAGS];
 	struct dp_tx_seg_info_s *next;
 };
+
+#endif /* QCA_HOST_MODE_WIFI_DISABLED */
 
 /**
  * struct dp_tx_sg_info_s - Scatter Gather Descriptor
@@ -148,23 +182,51 @@ struct dp_tx_msdu_info_s {
 	struct dp_tx_queue tx_queue;
 	uint32_t num_seg;
 	uint8_t tid;
+	uint8_t exception_fw;
+	uint8_t is_tx_sniffer;
 	union {
 		struct qdf_tso_info_t tso_info;
 		struct dp_tx_sg_info_s sg_info;
 	} u;
 	uint32_t meta_data[DP_TX_MSDU_INFO_META_DATA_DWORDS];
-	uint8_t exception_fw;
 	uint16_t ppdu_cookie;
-	uint8_t is_tx_sniffer;
 };
 
-QDF_STATUS dp_tx_vdev_attach(struct dp_vdev *vdev);
-QDF_STATUS dp_tx_vdev_detach(struct dp_vdev *vdev);
-void dp_tx_vdev_update_search_flags(struct dp_vdev *vdev);
+#ifndef QCA_HOST_MODE_WIFI_DISABLED
+/**
+ * dp_tx_deinit_pair_by_index() - Deinit TX rings based on index
+ * @soc: core txrx context
+ * @index: index of ring to deinit
+ *
+ * Deinit 1 TCL and 1 WBM2SW release ring on as needed basis using
+ * index of the respective TCL/WBM2SW release in soc structure.
+ * For example, if the index is 2 then &soc->tcl_data_ring[2]
+ * and &soc->tx_comp_ring[2] will be deinitialized.
+ *
+ * Return: none
+ */
+void dp_tx_deinit_pair_by_index(struct dp_soc *soc, int index);
+#endif /* QCA_HOST_MODE_WIFI_DISABLED */
 
-QDF_STATUS dp_tx_soc_attach(struct dp_soc *soc);
-QDF_STATUS dp_tx_soc_detach(struct dp_soc *soc);
+void dp_tx_tso_cmn_desc_pool_deinit(struct dp_soc *soc, uint8_t num_pool);
+void dp_tx_tso_cmn_desc_pool_free(struct dp_soc *soc, uint8_t num_pool);
+QDF_STATUS dp_tx_tso_cmn_desc_pool_alloc(struct dp_soc *soc,
+					 uint8_t num_pool,
+					 uint16_t num_desc);
+QDF_STATUS dp_tx_tso_cmn_desc_pool_init(struct dp_soc *soc,
+					uint8_t num_pool,
+					uint16_t num_desc);
 
+void dp_tx_tso_cmn_desc_pool_deinit(struct dp_soc *soc, uint8_t num_pool);
+void dp_tx_tso_cmn_desc_pool_free(struct dp_soc *soc, uint8_t num_pool);
+QDF_STATUS dp_tx_tso_cmn_desc_pool_alloc(struct dp_soc *soc,
+					 uint8_t num_pool,
+					 uint16_t num_desc);
+QDF_STATUS dp_tx_tso_cmn_desc_pool_init(struct dp_soc *soc,
+					uint8_t num_pool,
+					uint16_t num_desc);
+
+#ifndef QCA_HOST_MODE_WIFI_DISABLED
 /**
  * dp_tso_attach() - TSO Attach handler
  * @txrx_soc: Opaque Dp handle
@@ -187,14 +249,20 @@ QDF_STATUS dp_tso_soc_attach(struct cdp_soc_t *txrx_soc);
  */
 QDF_STATUS dp_tso_soc_detach(struct cdp_soc_t *txrx_soc);
 
-QDF_STATUS dp_tx_pdev_detach(struct dp_pdev *pdev);
-QDF_STATUS dp_tx_pdev_attach(struct dp_pdev *pdev);
-
 qdf_nbuf_t dp_tx_send(struct cdp_soc_t *soc, uint8_t vdev_id, qdf_nbuf_t nbuf);
+
+qdf_nbuf_t dp_tx_send_vdev_id_check(struct cdp_soc_t *soc, uint8_t vdev_id,
+				    qdf_nbuf_t nbuf);
 
 qdf_nbuf_t dp_tx_send_exception(struct cdp_soc_t *soc, uint8_t vdev_id,
 				qdf_nbuf_t nbuf,
 				struct cdp_tx_exception_metadata *tx_exc);
+
+qdf_nbuf_t dp_tx_send_exception_vdev_id_check(struct cdp_soc_t *soc,
+					      uint8_t vdev_id,
+					      qdf_nbuf_t nbuf,
+				struct cdp_tx_exception_metadata *tx_exc);
+
 qdf_nbuf_t dp_tx_send_mesh(struct cdp_soc_t *soc, uint8_t vdev_id,
 			   qdf_nbuf_t nbuf);
 qdf_nbuf_t
@@ -247,15 +315,44 @@ uint32_t dp_tx_comp_handler(struct dp_intr *int_ctx, struct dp_soc *soc,
 QDF_STATUS
 dp_tx_prepare_send_me(struct dp_vdev *vdev, qdf_nbuf_t nbuf);
 
-#ifndef FEATURE_WDS
-static inline void dp_tx_mec_handler(struct dp_vdev *vdev, uint8_t *status)
+QDF_STATUS
+dp_tx_prepare_send_igmp_me(struct dp_vdev *vdev, qdf_nbuf_t nbuf);
+
+#endif /* QCA_HOST_MODE_WIFI_DISABLED */
+
+#if defined(QCA_HOST_MODE_WIFI_DISABLED) || !defined(ATH_SUPPORT_IQUE)
+static inline void dp_tx_me_exit(struct dp_pdev *pdev)
 {
 	return;
 }
 #endif
 
-#ifndef ATH_SUPPORT_IQUE
-static inline void dp_tx_me_exit(struct dp_pdev *pdev)
+/**
+ * dp_tx_pdev_init() - dp tx pdev init
+ * @pdev: physical device instance
+ *
+ * Return: QDF_STATUS_SUCCESS: success
+ *         QDF_STATUS_E_RESOURCES: Error return
+ */
+static inline QDF_STATUS dp_tx_pdev_init(struct dp_pdev *pdev)
+{
+	struct dp_soc *soc = pdev->soc;
+
+	/* Initialize Flow control counters */
+	qdf_atomic_init(&pdev->num_tx_outstanding);
+	pdev->tx_descs_max = 0;
+	if (wlan_cfg_per_pdev_tx_ring(soc->wlan_cfg_ctx)) {
+		/* Initialize descriptors in TCL Ring */
+		hal_tx_init_data_ring(soc->hal_soc,
+				soc->tcl_data_ring[pdev->pdev_id].hal_srng);
+	}
+
+	return QDF_STATUS_SUCCESS;
+}
+
+
+#ifndef FEATURE_WDS
+static inline void dp_tx_mec_handler(struct dp_vdev *vdev, uint8_t *status)
 {
 	return;
 }
@@ -284,6 +381,28 @@ void dp_tx_vdev_multipass_deinit(struct dp_vdev *vdev);
 #endif
 
 /**
+ * dp_tx_hw_to_qdf()- convert hw status to qdf status
+ * @status: hw status
+ *
+ * Return: qdf tx rx status
+ */
+static inline enum qdf_dp_tx_rx_status dp_tx_hw_to_qdf(uint16_t status)
+{
+	switch (status) {
+	case HAL_TX_TQM_RR_FRAME_ACKED:
+		return QDF_TX_RX_STATUS_OK;
+	case HAL_TX_TQM_RR_REM_CMD_REM:
+	case HAL_TX_TQM_RR_REM_CMD_TX:
+	case HAL_TX_TQM_RR_REM_CMD_NOTX:
+	case HAL_TX_TQM_RR_REM_CMD_AGED:
+		return QDF_TX_RX_STATUS_FW_DISCARD;
+	default:
+		return QDF_TX_RX_STATUS_DEFAULT;
+	}
+}
+
+#ifndef QCA_HOST_MODE_WIFI_DISABLED
+/**
  * dp_tx_get_queue() - Returns Tx queue IDs to be used for this Tx frame
  * @vdev: DP Virtual device handle
  * @nbuf: Buffer pointer
@@ -307,12 +426,42 @@ static inline void dp_tx_get_queue(struct dp_vdev *vdev,
 				DP_TX_QUEUE_MASK;
 
 	queue->desc_pool_id = queue_offset;
-	queue->ring_id = vdev->pdev->soc->tx_ring_map[queue_offset];
+	queue->ring_id = qdf_get_cpu();
 
-	QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_DEBUG,
-		  "%s, pool_id:%d ring_id: %d",
-		  __func__, queue->desc_pool_id, queue->ring_id);
+	dp_tx_debug("pool_id:%d ring_id: %d",
+		    queue->desc_pool_id, queue->ring_id);
 }
+
+/*
+ * dp_tx_get_hal_ring_hdl()- Get the hal_tx_ring_hdl for data transmission
+ * @dp_soc - DP soc structure pointer
+ * @ring_id - Transmit Queue/ring_id to be used when XPS is enabled
+ *
+ * Return - HAL ring handle
+ */
+static inline hal_ring_handle_t dp_tx_get_hal_ring_hdl(struct dp_soc *soc,
+						       uint8_t ring_id)
+{
+	if (ring_id == soc->num_tcl_data_rings)
+		return soc->tcl_cmd_credit_ring.hal_srng;
+
+	return soc->tcl_data_ring[ring_id].hal_srng;
+}
+
+/*
+ * dp_tx_get_rbm_id()- Get the RBM ID for data transmission completion.
+ * @dp_soc - DP soc structure pointer
+ * @ring_id - Transmit Queue/ring_id to be used when XPS is enabled
+ *
+ * Return - HAL ring handle
+ */
+static inline uint8_t dp_tx_get_rbm_id(struct dp_soc *doc,
+				       uint8_t ring_id)
+{
+	return (ring_id ? HAL_WBM_SW0_BM_ID + (ring_id - 1) :
+			  HAL_WBM_SW2_BM_ID);
+}
+
 #else /* QCA_OL_TX_MULTIQ_SUPPORT */
 static inline void dp_tx_get_queue(struct dp_vdev *vdev,
 				   qdf_nbuf_t nbuf, struct dp_tx_queue *queue)
@@ -321,23 +470,82 @@ static inline void dp_tx_get_queue(struct dp_vdev *vdev,
 	queue->desc_pool_id = DP_TX_GET_DESC_POOL_ID(vdev);
 	queue->ring_id = DP_TX_GET_RING_ID(vdev);
 
-	QDF_TRACE(QDF_MODULE_ID_DP, QDF_TRACE_LEVEL_DEBUG,
-		  "%s, pool_id:%d ring_id: %d",
-		  __func__, queue->desc_pool_id, queue->ring_id);
+	dp_tx_debug("pool_id:%d ring_id: %d",
+		    queue->desc_pool_id, queue->ring_id);
+}
+
+static inline hal_ring_handle_t dp_tx_get_hal_ring_hdl(struct dp_soc *soc,
+						       uint8_t ring_id)
+{
+	return soc->tcl_data_ring[ring_id].hal_srng;
+}
+
+static inline uint8_t dp_tx_get_rbm_id(struct dp_soc *soc,
+				       uint8_t ring_id)
+{
+	return (ring_id + HAL_WBM_SW0_BM_ID);
 }
 #endif
-#ifdef FEATURE_PERPKT_INFO
-QDF_STATUS
-dp_get_completion_indication_for_stack(struct dp_soc *soc,
-				       struct dp_pdev *pdev,
-				       struct dp_peer *peer,
-				       struct hal_tx_completion_status *ts,
-				       qdf_nbuf_t netbuf,
-				       uint64_t time_latency);
 
-void  dp_send_completion_to_stack(struct dp_soc *soc,  struct dp_pdev *pdev,
-		uint16_t peer_id, uint32_t ppdu_id,
-		qdf_nbuf_t netbuf);
+#ifdef QCA_OL_TX_LOCK_LESS_ACCESS
+/*
+ * dp_tx_hal_ring_access_start()- hal_tx_ring access for data transmission
+ * @dp_soc - DP soc structure pointer
+ * @hal_ring_hdl - HAL ring handle
+ *
+ * Return - None
+ */
+static inline int dp_tx_hal_ring_access_start(struct dp_soc *soc,
+					      hal_ring_handle_t hal_ring_hdl)
+{
+	return hal_srng_access_start_unlocked(soc->hal_soc, hal_ring_hdl);
+}
+
+/*
+ * dp_tx_hal_ring_access_end()- hal_tx_ring access for data transmission
+ * @dp_soc - DP soc structure pointer
+ * @hal_ring_hdl - HAL ring handle
+ *
+ * Return - None
+ */
+static inline void dp_tx_hal_ring_access_end(struct dp_soc *soc,
+					     hal_ring_handle_t hal_ring_hdl)
+{
+	hal_srng_access_end_unlocked(soc->hal_soc, hal_ring_hdl);
+}
+
+/*
+ * dp_tx_hal_ring_access_reap()- hal_tx_ring access for data transmission
+ * @dp_soc - DP soc structure pointer
+ * @hal_ring_hdl - HAL ring handle
+ *
+ * Return - None
+ */
+static inline void dp_tx_hal_ring_access_end_reap(struct dp_soc *soc,
+						  hal_ring_handle_t
+						  hal_ring_hdl)
+{
+}
+
+#else
+static inline int dp_tx_hal_ring_access_start(struct dp_soc *soc,
+					      hal_ring_handle_t hal_ring_hdl)
+{
+	return hal_srng_access_start(soc->hal_soc, hal_ring_hdl);
+}
+
+static inline void dp_tx_hal_ring_access_end(struct dp_soc *soc,
+					     hal_ring_handle_t hal_ring_hdl)
+{
+	hal_srng_access_end(soc->hal_soc, hal_ring_hdl);
+}
+
+static inline void dp_tx_hal_ring_access_end_reap(struct dp_soc *soc,
+						  hal_ring_handle_t
+						  hal_ring_hdl)
+{
+	hal_srng_access_end_reap(soc->hal_soc, hal_ring_hdl);
+}
 #endif
 
 void  dp_iterate_update_peer_list(struct cdp_pdev *pdev_hdl);
@@ -349,10 +557,6 @@ void  dp_iterate_update_peer_list(struct cdp_pdev *pdev_hdl);
 #define DP_TX_TID_OVERRIDE(_msdu_info, _nbuf)
 #endif
 
-void
-dp_handle_wbm_internal_error(struct dp_soc *soc, void *hal_desc,
-			     uint32_t buf_type);
-
 /* TODO TX_FEATURE_NOT_YET */
 static inline void dp_tx_comp_process_exception(struct dp_tx_desc_s *tx_desc)
 {
@@ -360,12 +564,118 @@ static inline void dp_tx_comp_process_exception(struct dp_tx_desc_s *tx_desc)
 }
 /* TODO TX_FEATURE_NOT_YET */
 
-#ifndef WLAN_TX_PKT_CAPTURE_ENH
+void dp_tx_desc_flush(struct dp_pdev *pdev, struct dp_vdev *vdev,
+		      bool force_free);
+QDF_STATUS dp_tx_vdev_attach(struct dp_vdev *vdev);
+QDF_STATUS dp_tx_vdev_detach(struct dp_vdev *vdev);
+void dp_tx_vdev_update_search_flags(struct dp_vdev *vdev);
+QDF_STATUS dp_soc_tx_desc_sw_pools_alloc(struct dp_soc *soc);
+QDF_STATUS dp_soc_tx_desc_sw_pools_init(struct dp_soc *soc);
+void dp_soc_tx_desc_sw_pools_free(struct dp_soc *soc);
+void dp_soc_tx_desc_sw_pools_deinit(struct dp_soc *soc);
+void
+dp_handle_wbm_internal_error(struct dp_soc *soc, void *hal_desc,
+			     uint32_t buf_type);
+#else /* QCA_HOST_MODE_WIFI_DISABLED */
+
 static inline
-void dp_peer_set_tx_capture_enabled(struct dp_peer *peer_handle, bool value)
+QDF_STATUS dp_soc_tx_desc_sw_pools_alloc(struct dp_soc *soc)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline
+QDF_STATUS dp_soc_tx_desc_sw_pools_init(struct dp_soc *soc)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline void dp_soc_tx_desc_sw_pools_free(struct dp_soc *soc)
+{
+}
+
+static inline void dp_soc_tx_desc_sw_pools_deinit(struct dp_soc *soc)
+{
+}
+
+static inline
+void dp_tx_desc_flush(struct dp_pdev *pdev, struct dp_vdev *vdev,
+		      bool force_free)
+{
+}
+
+static inline QDF_STATUS dp_tx_vdev_attach(struct dp_vdev *vdev)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline QDF_STATUS dp_tx_vdev_detach(struct dp_vdev *vdev)
+{
+	return QDF_STATUS_SUCCESS;
+}
+
+static inline void dp_tx_vdev_update_search_flags(struct dp_vdev *vdev)
+{
+}
+
+#endif /* QCA_HOST_MODE_WIFI_DISABLED */
+
+#if defined(QCA_SUPPORT_LATENCY_CAPTURE) || \
+	defined(QCA_TX_CAPTURE_SUPPORT) || \
+	defined(QCA_MCOPY_SUPPORT)
+#ifdef FEATURE_PERPKT_INFO
+QDF_STATUS
+dp_get_completion_indication_for_stack(struct dp_soc *soc,
+				       struct dp_pdev *pdev,
+				       struct dp_peer *peer,
+				       struct hal_tx_completion_status *ts,
+				       qdf_nbuf_t netbuf,
+				       uint64_t time_latency);
+
+void dp_send_completion_to_stack(struct dp_soc *soc,  struct dp_pdev *pdev,
+			    uint16_t peer_id, uint32_t ppdu_id,
+			    qdf_nbuf_t netbuf);
+#endif
+#else
+static inline
+QDF_STATUS dp_get_completion_indication_for_stack(struct dp_soc *soc,
+				       struct dp_pdev *pdev,
+				       struct dp_peer *peer,
+				       struct hal_tx_completion_status *ts,
+				       qdf_nbuf_t netbuf,
+				       uint64_t time_latency)
+{
+	return QDF_STATUS_E_NOSUPPORT;
+}
+
+static inline
+void dp_send_completion_to_stack(struct dp_soc *soc,  struct dp_pdev *pdev,
+			    uint16_t peer_id, uint32_t ppdu_id,
+			    qdf_nbuf_t netbuf)
 {
 }
 #endif
-void dp_tx_desc_flush(struct dp_pdev *pdev, struct dp_vdev *vdev,
-		      bool force_free);
+
+#ifndef WLAN_TX_PKT_CAPTURE_ENH
+static inline
+QDF_STATUS dp_peer_set_tx_capture_enabled(struct dp_pdev *pdev,
+					  struct dp_peer *peer_handle,
+					  uint8_t value, uint8_t *peer_mac)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
+#ifdef WLAN_FEATURE_PKT_CAPTURE_LITHIUM
+void dp_send_completion_to_pkt_capture(struct dp_soc *soc,
+				       struct dp_tx_desc_s *desc,
+				       struct hal_tx_completion_status *ts);
+#else
+static inline void
+dp_send_completion_to_pkt_capture(struct dp_soc *soc,
+				  struct dp_tx_desc_s *desc,
+				  struct hal_tx_completion_status *ts)
+{
+}
+#endif
 #endif

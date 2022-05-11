@@ -152,6 +152,18 @@ static inline int __qdf_semaphore_acquire_intr(struct semaphore *m)
 }
 
 /**
+ * __qdf_semaphore_acquire_trylock() - down_trylock
+ * @osdev: OS device handle
+ * @m: Semaphore object
+ *
+ * Return: int
+ */
+static inline int __qdf_semaphore_acquire_trylock(struct semaphore *m)
+{
+	return down_trylock(m);
+}
+
+/**
  * __qdf_semaphore_release() - release semaphore
  * @m: Semaphore object
  *

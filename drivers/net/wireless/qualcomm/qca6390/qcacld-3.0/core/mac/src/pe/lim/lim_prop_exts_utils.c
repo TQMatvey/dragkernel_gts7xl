@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -255,12 +255,34 @@ void lim_update_he_bw_cap_mcs(struct pe_session *session,
 							HE_MCS_ALL_DISABLED;
 	}
 }
+
+void lim_update_he_mcs_12_13_map(struct wlan_objmgr_psoc *psoc,
+				 uint8_t vdev_id, uint16_t he_mcs_12_13_map)
+{
+	struct wlan_objmgr_vdev *vdev;
+
+	vdev = wlan_objmgr_get_vdev_by_id_from_psoc(psoc, vdev_id,
+						    WLAN_LEGACY_MAC_ID);
+	if (!vdev) {
+		pe_err("vdev not found for id: %d", vdev_id);
+		return;
+	}
+	wlan_vdev_obj_lock(vdev);
+	wlan_vdev_mlme_set_he_mcs_12_13_map(vdev, he_mcs_12_13_map);
+	wlan_vdev_obj_unlock(vdev);
+	wlan_objmgr_vdev_release_ref(vdev, WLAN_LEGACY_MAC_ID);
+}
 #else
 static inline void lim_extract_he_op(struct pe_session *session,
 		tSirProbeRespBeacon *beacon_struct)
 {}
 static void lim_check_is_he_mcs_valid(struct pe_session *session,
 				      tSirProbeRespBeacon *beacon_struct)
+{
+}
+
+void lim_update_he_mcs_12_13_map(struct wlan_objmgr_psoc *psoc,
+				 uint8_t vdev_id, uint16_t he_mcs_12_13_map)
 {
 }
 #endif
@@ -320,6 +342,36 @@ static inline bool lim_extract_adaptive_11r_cap(uint8_t *ie, uint16_t ie_len)
 }
 #endif
 
+#ifdef WLAN_FEATURE_11AX
+static void lim_check_peer_ldpc_and_update(struct pe_session *session,
+				    tSirProbeRespBeacon *beacon_struct)
+{
+	/*
+	 * In 2.4G if AP supports HE till MCS 0-9 we can associate
+	 * with HE mode instead downgrading to 11ac
+	 */
+	if (session->he_capable &&
+	    WLAN_REG_IS_24GHZ_CH_FREQ(session->curr_op_freq) &&
+	    beacon_struct->he_cap.present &&
+	    lim_check_he_80_mcs11_supp(session, &beacon_struct->he_cap) &&
+	    !beacon_struct->he_cap.ldpc_coding) {
+		session->he_capable = false;
+		pe_err("LDPC check failed for HE operation");
+		if (session->vhtCapability) {
+			session->dot11mode = MLME_DOT11_MODE_11AC;
+			pe_debug("Update dot11mode to 11ac");
+		} else {
+			session->dot11mode = MLME_DOT11_MODE_11N;
+			pe_debug("Update dot11mode to 11N");
+		}
+	}
+}
+#else
+static void lim_check_peer_ldpc_and_update(struct pe_session *session,
+					   tSirProbeRespBeacon *beacon_struct)
+{}
+#endif
+
 void lim_extract_ap_capability(struct mac_context *mac_ctx, uint8_t *p_ie,
 			       uint16_t ie_len, uint8_t *qos_cap,
 			       uint8_t *uapsd, int8_t *local_constraint,
@@ -344,9 +396,11 @@ void lim_extract_ap_capability(struct mac_context *mac_ctx, uint8_t *p_ie,
 
 	*qos_cap = 0;
 	*uapsd = 0;
+#ifndef FEATURE_CM_ENABLE
 	pe_debug("The IE's being received:");
 	QDF_TRACE_HEX_DUMP(QDF_MODULE_ID_PE, QDF_TRACE_LEVEL_DEBUG,
 			   p_ie, ie_len);
+#endif
 	if (sir_parse_beacon_ie(mac_ctx, beacon_struct, p_ie,
 		(uint32_t) ie_len) != QDF_STATUS_SUCCESS) {
 		pe_err("sir_parse_beacon_ie failed to parse beacon");
@@ -495,9 +549,9 @@ void lim_extract_ap_capability(struct mac_context *mac_ctx, uint8_t *p_ie,
 			}
 		} else if (vht_ch_wd == WNI_CFG_VHT_CHANNEL_WIDTH_80MHZ) {
 			/* DUT or AP supports only 80MHz */
-			session->ch_center_freq_seg1 = 0;
 			session->ch_center_freq_seg0 =
 				lim_get_80Mhz_center_channel(channel);
+			session->ch_center_freq_seg1 = 0;
 		}
 		session->ch_width = vht_ch_wd + 1;
 	}
@@ -509,18 +563,40 @@ void lim_extract_ap_capability(struct mac_context *mac_ctx, uint8_t *p_ie,
 		session->gLimOperatingMode.present =
 			ext_cap->oper_mode_notification;
 		if (ext_cap->oper_mode_notification) {
+			uint8_t self_nss = 0;
+
+			if (!wlan_reg_is_24ghz_ch_freq(session->curr_op_freq))
+				self_nss = mac_ctx->vdev_type_nss_5g.sta;
+			else
+				self_nss = mac_ctx->vdev_type_nss_2g.sta;
+
 			if (CH_WIDTH_160MHZ > session->ch_width)
 				session->gLimOperatingMode.chanWidth =
 						session->ch_width;
 			else
 				session->gLimOperatingMode.chanWidth =
 					CH_WIDTH_160MHZ;
-			session->gLimOperatingMode.rxNSS = session->nss - 1;
+			/** Populate vdev nss in OMN ie of assoc requse for
+			 *  WFA CERT test scenario.
+			 */
+			if (ext_cap->beacon_protection_enable &&
+			    (session->opmode == QDF_STA_MODE) &&
+			    (!session->nss_forced_1x1) &&
+			     lim_get_nss_supported_by_ap(
+					&beacon_struct->VHTCaps,
+					&beacon_struct->HTCaps,
+					&beacon_struct->he_cap) ==
+						 NSS_1x1_MODE)
+				session->gLimOperatingMode.rxNSS = self_nss - 1;
+			else
+				session->gLimOperatingMode.rxNSS =
+							session->nss - 1;
 		} else {
 			pe_err("AP does not support op_mode rx");
 		}
 	}
 	lim_check_is_he_mcs_valid(session, beacon_struct);
+	lim_check_peer_ldpc_and_update(session, beacon_struct);
 	lim_extract_he_op(session, beacon_struct);
 	lim_update_he_bw_cap_mcs(session, beacon_struct);
 	/* Extract the UAPSD flag from WMM Parameter element */
@@ -567,6 +643,17 @@ void lim_extract_ap_capability(struct mac_context *mac_ctx, uint8_t *p_ie,
 
 	session->is_adaptive_11r_connection =
 			lim_extract_adaptive_11r_cap(p_ie, ie_len);
+
+	if (mac_ctx->mlme_cfg->sta.support_rvr_optimize &&
+	    wlan_get_vendor_ie_ptr_from_oui(
+			mac_ctx->mlme_cfg->sta.rvr_optimize_vendor_oui,
+			mac_ctx->mlme_cfg->sta.rvr_optimize_vendor_oui_length,
+			p_ie, ie_len)) {
+		sme_set_txtd_start_timestamp(MAC_HANDLE(mac_ctx),
+			mac_ctx->mlme_cfg->sta.txtd_start_timestamp);
+		mac_ctx->is_rvr_optimize_enabled = true;
+	}
+
 	qdf_mem_free(beacon_struct);
 	return;
 } /****** end lim_extract_ap_capability() ******/

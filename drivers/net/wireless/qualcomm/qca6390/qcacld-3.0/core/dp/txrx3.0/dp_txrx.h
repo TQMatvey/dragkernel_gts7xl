@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -45,6 +45,44 @@ struct dp_txrx_handle {
 	struct dp_rx_tm_handle rx_tm_hdl;
 	struct dp_txrx_config config;
 };
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0))
+/**
+ * dp_rx_napi_gro_flush() - do gro flush
+ * @napi: napi used to do gro flush
+ * @flush_code: flush_code differentiating low_tput_flush and normal_flush
+ *
+ * if there is RX GRO_NORMAL packets pending in napi
+ * rx_list, flush them manually right after napi_gro_flush.
+ *
+ * return: none
+ */
+static inline void dp_rx_napi_gro_flush(struct napi_struct *napi,
+					enum dp_rx_gro_flush_code flush_code)
+{
+	if (napi->poll) {
+		/* Skipping GRO flush in low TPUT */
+		if (flush_code != DP_RX_GRO_LOW_TPUT_FLUSH)
+			napi_gro_flush(napi, false);
+
+		if (napi->rx_count) {
+			netif_receive_skb_list(&napi->rx_list);
+			qdf_init_list_head(&napi->rx_list);
+			napi->rx_count = 0;
+		}
+	}
+}
+#else
+static inline void dp_rx_napi_gro_flush(struct napi_struct *napi,
+					enum dp_rx_gro_flush_code flush_code)
+{
+	if (napi->poll) {
+		/* Skipping GRO flush in low TPUT */
+		if (flush_code != DP_RX_GRO_LOW_TPUT_FLUSH)
+			napi_gro_flush(napi, false);
+	}
+}
+#endif
 
 #ifdef FEATURE_WLAN_DP_RX_THREADS
 /**
@@ -232,11 +270,13 @@ ret:
  * dp_rx_gro_flush_ind() - Flush GRO packets for a given RX CTX Id
  * @soc: ol_txrx_soc_handle object
  * @rx_ctx_id: Context Id (Thread for which GRO packets need to be flushed)
+ * @flush_code: flush_code differentiating normal_flush from low_tput_flush
  *
  * Return: QDF_STATUS_SUCCESS on success, error qdf status on failure
  */
 static inline
-QDF_STATUS dp_rx_gro_flush_ind(ol_txrx_soc_handle soc, int rx_ctx_id)
+QDF_STATUS dp_rx_gro_flush_ind(ol_txrx_soc_handle soc, int rx_ctx_id,
+			       enum dp_rx_gro_flush_code flush_code)
 {
 	struct dp_txrx_handle *dp_ext_hdl;
 	QDF_STATUS qdf_status = QDF_STATUS_SUCCESS;
@@ -253,7 +293,8 @@ QDF_STATUS dp_rx_gro_flush_ind(ol_txrx_soc_handle soc, int rx_ctx_id)
 		goto ret;
 	}
 
-	qdf_status = dp_rx_tm_gro_flush_ind(&dp_ext_hdl->rx_tm_hdl, rx_ctx_id);
+	qdf_status = dp_rx_tm_gro_flush_ind(&dp_ext_hdl->rx_tm_hdl, rx_ctx_id,
+					    flush_code);
 ret:
 	return qdf_status;
 }
@@ -384,7 +425,8 @@ QDF_STATUS dp_rx_enqueue_pkt(ol_txrx_soc_handle soc, qdf_nbuf_t nbuf_list)
 }
 
 static inline
-QDF_STATUS dp_rx_gro_flush_ind(ol_txrx_soc_handle soc, int rx_ctx_id)
+QDF_STATUS dp_rx_gro_flush_ind(ol_txrx_soc_handle soc, int rx_ctx_id,
+			       enum dp_rx_gro_flush_code flush_code)
 {
 	return QDF_STATUS_SUCCESS;
 }
@@ -410,6 +452,15 @@ QDF_STATUS dp_txrx_set_cpu_mask(ol_txrx_soc_handle soc, qdf_cpu_mask *new_mask)
 
 #endif /* FEATURE_WLAN_DP_RX_THREADS */
 
+/**
+ * dp_rx_tm_get_pending() - get number of frame in thread
+ * nbuf queue pending
+ * @soc: ol_txrx_soc_handle object
+ *
+ * Return: number of frames
+ */
+int dp_rx_tm_get_pending(ol_txrx_soc_handle soc);
+
 #ifdef DP_MEM_PRE_ALLOC
 /**
  * dp_prealloc_init() - Pre-allocate DP memory
@@ -426,6 +477,31 @@ QDF_STATUS dp_prealloc_init(void);
 void dp_prealloc_deinit(void);
 
 /**
+ * dp_prealloc_get_context_memory() - gets pre-alloc DP context memory from
+ *				      global pool
+ * @ctxt_type: type of DP context
+ *
+ * This is done only as part of init happening in a single context. Hence
+ * no lock is used for protection
+ *
+ * Return: Address of context
+ */
+void *dp_prealloc_get_context_memory(uint32_t ctxt_type);
+
+/**
+ * dp_prealloc_put_context_memory() - puts back pre-alloc DP context memory to
+ *				      global pool
+ * @ctxt_type: type of DP context
+ * @vaddr: address of DP context
+ *
+ * This is done only as part of de-init happening in a single context. Hence
+ * no lock is used for protection
+ *
+ * Return: Failure if address not found
+ */
+QDF_STATUS dp_prealloc_put_context_memory(uint32_t ctxt_type, void *vaddr);
+
+/**
  * dp_prealloc_get_coherent() - gets pre-alloc DP memory
  * @size: size of memory needed
  * @base_vaddr_unaligned: Unaligned virtual address.
@@ -435,6 +511,10 @@ void dp_prealloc_deinit(void);
  * @align: alignment needed
  * @ring_type: HAL ring type
  *
+ * The function does not handle concurrent access to pre-alloc memory.
+ * All ring memory allocation from pre-alloc memory should happen from single
+ * context to avoid race conditions.
+ *
  * Return: unaligned virtual address if success or null if memory alloc fails.
  */
 void *dp_prealloc_get_coherent(uint32_t *size, void **base_vaddr_unaligned,
@@ -442,6 +522,7 @@ void *dp_prealloc_get_coherent(uint32_t *size, void **base_vaddr_unaligned,
 			       qdf_dma_addr_t *paddr_aligned,
 			       uint32_t align,
 			       uint32_t ring_type);
+
 /**
  * dp_prealloc_put_coherent() - puts back pre-alloc DP memory
  * @size: size of memory to be returned
@@ -478,11 +559,12 @@ void dp_prealloc_get_multi_pages(uint32_t src_type,
  */
 void dp_prealloc_put_multi_pages(uint32_t src_type,
 				 struct qdf_mem_multi_page_t *pages);
+
 /**
  * dp_prealloc_get_consistent_mem_unaligned() - gets pre-alloc unaligned
 						consistent memory
  * @size: total memory size
- * @base_addr: pointer to dma address.
+ * @base_addr: pointer to dma address
  * @ring_type: HAL ring type that requires memory
  *
  * Return: memory virtual address pointer, NULL if fail
@@ -490,10 +572,11 @@ void dp_prealloc_put_multi_pages(uint32_t src_type,
 void *dp_prealloc_get_consistent_mem_unaligned(size_t size,
 					       qdf_dma_addr_t *base_addr,
 					       uint32_t ring_type);
+
 /**
  * dp_prealloc_put_consistent_mem_unaligned() - puts back pre-alloc unaligned
 						consistent memory
- * @va_unaligned: memory virtual address pointer.
+ * @va_unaligned: memory virtual address pointer
  *
  * Return: None
  */
@@ -506,12 +589,4 @@ static inline void dp_prealloc_deinit(void) { }
 
 #endif
 
-/**
- * dp_rx_tm_get_pending() - get number of frame in thread
- * nbuf queue pending
- * @soc: ol_txrx_soc_handle object
- *
- * Return: number of frames
- */
-int dp_rx_tm_get_pending(ol_txrx_soc_handle soc);
 #endif /* _DP_TXRX_H */

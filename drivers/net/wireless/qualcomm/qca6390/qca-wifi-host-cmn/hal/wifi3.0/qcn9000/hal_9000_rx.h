@@ -16,6 +16,10 @@
  * PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include "sw_monitor_ring.h"
+#include "hal_rx.h"
+#include "hal_api_mon.h"
+
 #define HAL_RX_MSDU0_BUFFER_ADDR_LSB(link_desc_va)      \
 	((uint8_t *)(link_desc_va) +			\
 	RX_MSDU_LINK_8_MSDU_0_BUFFER_ADDR_INFO_DETAILS_BUFFER_ADDR_31_0_OFFSET)
@@ -69,6 +73,20 @@
 			       AGING_FLUSH_ENABLE, 1);\
 		HAL_REG_WRITE((soc), \
 			      HWIO_REO_R0_GENERAL_ENABLE_ADDR( \
+			      SEQ_WCSS_UMAC_REO_REG_OFFSET), \
+			      (reg_val)); \
+		(reg_val) = \
+		HAL_REG_READ((soc), \
+			     HWIO_REO_R0_DESTINATION_RING_ALT_CTRL_IX_0_ADDR(	\
+			     SEQ_WCSS_UMAC_REO_REG_OFFSET)); \
+		(reg_val) &= \
+			~(HWIO_REO_R0_DESTINATION_RING_ALT_CTRL_IX_0_DEST_RING_ALT_MAPPING_0_BMSK); \
+		(reg_val) |= \
+			HAL_SM(HWIO_REO_R0_DESTINATION_RING_ALT_CTRL_IX_0, \
+			       DEST_RING_ALT_MAPPING_0, \
+			       (reo_params)->alt_dst_ind_0); \
+		HAL_REG_WRITE((soc), \
+			      HWIO_REO_R0_DESTINATION_RING_ALT_CTRL_IX_0_ADDR( \
 			      SEQ_WCSS_UMAC_REO_REG_OFFSET), \
 			      (reg_val)); \
 	} while (0)
@@ -366,3 +384,11 @@
 	RX_MSDU_START_5_RECEPTION_TYPE_OFFSET)),		\
 	RX_MSDU_START_5_RECEPTION_TYPE_MASK,			\
 	RX_MSDU_START_5_RECEPTION_TYPE_LSB))
+
+#define RX_LOCATION_INFO_DETAILS_RESERVED_8_CHAN_CAPTURE_STATUS_BMASK 0x3
+
+#define GET_RX_LOCATION_INFO_CHAN_CAPTURE_STATUS(rx_tlv) \
+	(HAL_RX_GET(rx_tlv, \
+		    PHYRX_PKT_END_13_RX_PKT_END_DETAILS_RX_LOCATION_INFO_DETAILS, \
+		    RESERVED_8) & \
+	 RX_LOCATION_INFO_DETAILS_RESERVED_8_CHAN_CAPTURE_STATUS_BMASK)
