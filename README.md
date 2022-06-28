@@ -34,14 +34,14 @@ All toolchain are downloaded automatically as submodules, just run build_kernel.
 ```
 sudo pacman -Syy
 sudo pacman -S base-devel git perl openssl ccache bc
-git clone --recurse-submodules dragkernel_gts7xl && cd drag-kernel-t975
+git clone --recurse-submodules https://github.com/TQMatvey/dragkernel_gts7xl && cd drag-kernel-t975
 chmod +x build_kernel.sh && ./build_kernel.sh
 ```
 ### Ubuntu
 ```
 sudo apt update
 sudo apt install build-essential bc flex bison libncurses5-dev libssl-dev git ccache
-git clone --recurse-submodules https://github.com/TQMatvey/dragkernel_gts7xl && cd dragkernel_gts7xl
+git clone https://github.com/TQMatvey/dragkernel_gts7xl && cd dragkernel_gts7xl
 chmod +x build_kernel.sh && ./build_kernel.sh
 ```
 ## Post-building
